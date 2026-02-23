@@ -27,8 +27,27 @@ func NewService(repo ports.PageRepository, events ports.PageEvents, clock Clock)
 }
 
 func (service *Service) CreatePage(ctx context.Context, title string, cover *string, blocks []domain.Block) (domain.Page, error) {
+	return service.CreatePageWithSettings(ctx, title, cover, blocks, false, true, 65, "")
+}
+
+func (service *Service) CreatePageWithSettings(
+	ctx context.Context,
+	title string,
+	cover *string,
+	blocks []domain.Block,
+	darkMode bool,
+	cinematic bool,
+	mood int,
+	bgColor string,
+) (domain.Page, error) {
 	if title == "" {
 		return domain.Page{}, errs.ErrInvalidInput
+	}
+	if mood < 0 {
+		mood = 0
+	}
+	if mood > 100 {
+		mood = 100
 	}
 	now := service.clock.Now()
 	page := domain.Page{
@@ -36,9 +55,10 @@ func (service *Service) CreatePage(ctx context.Context, title string, cover *str
 		Title:     title,
 		Cover:     cover,
 		Published: false,
-		DarkMode:  false,
-		Cinematic: true,
-		Mood:      65,
+		DarkMode:  darkMode,
+		Cinematic: cinematic,
+		Mood:      mood,
+		BgColor:   bgColor,
 		Blocks:    blocks,
 		CreatedAt: now,
 		UpdatedAt: now,

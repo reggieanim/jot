@@ -56,9 +56,13 @@ type streamEvent struct {
 }
 
 type createPageRequest struct {
-	Title  string         `json:"title"`
-	Cover  *string        `json:"cover,omitempty"`
-	Blocks []domain.Block `json:"blocks"`
+	Title     string         `json:"title"`
+	Cover     *string        `json:"cover,omitempty"`
+	Blocks    []domain.Block `json:"blocks"`
+	DarkMode  bool           `json:"dark_mode"`
+	Cinematic bool           `json:"cinematic"`
+	Mood      int            `json:"mood"`
+	BgColor   string         `json:"bg_color"`
 }
 
 type updateBlocksRequest struct {
@@ -495,7 +499,16 @@ func (handler *Handler) createPage(ctx *gin.Context) {
 		return
 	}
 
-	page, err := handler.service.CreatePage(ctx.Request.Context(), body.Title, body.Cover, body.Blocks)
+	page, err := handler.service.CreatePageWithSettings(
+		ctx.Request.Context(),
+		body.Title,
+		body.Cover,
+		body.Blocks,
+		body.DarkMode,
+		body.Cinematic,
+		body.Mood,
+		body.BgColor,
+	)
 	if err != nil {
 		handler.handleError(ctx, err)
 		return

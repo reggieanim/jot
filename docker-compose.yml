@@ -54,6 +54,9 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
     volumes:
       - miniodata:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
@@ -101,7 +104,7 @@ services:
       JOT_S3_SECRET_KEY: "${MINIO_ROOT_PASSWORD}"
       JOT_S3_BUCKET: "jot-media"
       JOT_S3_USE_SSL: "false"
-      JOT_S3_PUBLIC_URL: "${JOT_S3_PUBLIC_URL:-http://localhost:9000/jot-media}"
+      JOT_S3_PUBLIC_URL: "${JOT_S3_PUBLIC_URL:?set JOT_S3_PUBLIC_URL}"
       JOT_CORS_ORIGINS: "${JOT_CORS_ORIGINS:-http://localhost:3000}"
       JOT_OTLP_ENDPOINT: ""
       JOT_LOG_LEVEL: "info"
