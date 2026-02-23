@@ -29,6 +29,9 @@
 	let paletteBase: Rgb = FALLBACK_BASE;
 	let paletteAccent: Rgb = FALLBACK_ACCENT;
 	let themeStyle = DEFAULT_THEME;
+	let tocVersion = 0;
+	let tocBlocks: ApiBlock[] = [];
+	let tocTimer: ReturnType<typeof setTimeout> | null = null;
 	let pageRevision = '';
 	let syncTimer: ReturnType<typeof setTimeout> | null = null;
 	let syncRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -456,6 +459,7 @@
 			bgColor = page.bg_color ?? bgColor;
 			applyCoverPalette(cover);
 			blocks = page.blocks || [];
+			syncTocNow();
 			pageRevision = page.updated_at || '';
 			hasUnsyncedChanges = false;
 			hasUnsyncedMeta = false;
@@ -493,6 +497,7 @@
 			moodStrength = page.mood ?? moodStrength;
 			bgColor = page.bg_color ?? bgColor;
 			blocks = page.blocks || blocks;
+			syncTocNow();
 			pageRevision = page.updated_at || '';
 			await goto(`/editor?pageId=${encodeURIComponent(page.id)}`, {
 				replaceState: true,
@@ -549,8 +554,23 @@
 		}
 	}
 
+	function scheduleTocUpdate() {
+		if (tocTimer) clearTimeout(tocTimer);
+		tocTimer = setTimeout(() => {
+			tocTimer = null;
+			tocBlocks = blocks.map(b => ({ ...b }));
+		}, 400);
+	}
+
+	function syncTocNow() {
+		if (tocTimer) clearTimeout(tocTimer);
+		tocTimer = null;
+		tocBlocks = blocks.map(b => ({ ...b }));
+	}
+
 	function markBlocksDirtyAndScheduleSync() {
 		hasUnsyncedChanges = true;
+		scheduleTocUpdate();
 		if (syncRetryTimer) {
 			clearTimeout(syncRetryTimer);
 			syncRetryTimer = null;
@@ -641,6 +661,7 @@
 				const latest = conflictPayload?.page as ApiPage | undefined;
 				if (latest?.blocks) {
 					blocks = latest.blocks;
+					syncTocNow();
 					pageRevision = latest.updated_at || pageRevision;
 				}
 				hasUnsyncedChanges = false;
@@ -711,6 +732,7 @@
 					moodStrength = latest.mood ?? moodStrength;
 					bgColor = latest.bg_color ?? bgColor;
 					blocks = latest.blocks || blocks;
+					syncTocNow();
 					pageRevision = latest.updated_at || pageRevision;
 					setThemeFromRgb(paletteBase, paletteAccent);
 				}
@@ -847,6 +869,7 @@
 			moodStrength = incoming.mood ?? moodStrength;
 			bgColor = incoming.bg_color ?? bgColor;
 			blocks = incoming.blocks || blocks;
+			syncTocNow();
 			if (incoming.updated_at) {
 				pageRevision = incoming.updated_at;
 			}
@@ -941,6 +964,7 @@
 		markSelfActive();
 		window.addEventListener('beforeunload', handleBeforeUnload);
 		if (titleEl) titleEl.textContent = title;
+		syncTocNow();
 	});
 
 	$: {
@@ -972,6 +996,7 @@
 		if (syncTimer) clearTimeout(syncTimer);
 		if (syncRetryTimer) clearTimeout(syncRetryTimer);
 		if (metaSyncTimer) clearTimeout(metaSyncTimer);
+		if (tocTimer) clearTimeout(tocTimer);
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('beforeunload', handleBeforeUnload);
 		}
@@ -980,7 +1005,7 @@
 
 <div class="editor-shell">
 	<aside class="cover-rail" class:has-cover={!!cover}>
-		<Cover {cover} {apiUrl} on:change={handleCoverChange} />
+		<Cover {cover} {apiUrl} {title} blocks={tocBlocks} on:change={handleCoverChange} />
 	</aside>
 
 	<main class="editor-main" class:dark={darkMode} class:cinematic-on={cinematicEnabled} class:has-bg-color={!!bgColor} style="{themeStyle}{bgColor ? `--note-user-bg:${bgColor};` : ''}">
@@ -1108,6 +1133,7 @@
 						class="block-wrapper"
 						role="group"
 						aria-label="Editor block wrapper"
+						data-block-id={block.id}
 						on:dragover={(e) => handleDragOver(e, block.id!)}
 						on:drop={(e) => handleGalleryCardDrop(e, block.id!)}
 						on:dragend={handleDragEnd}
@@ -1160,10 +1186,10 @@
 		width: 24px;
 		min-width: 24px;
 		flex: 0 0 24px;
-		background: transparent;
-		border-right: 1px solid transparent;
+		background: var(--note-surface, #fafafa);
+		border-right: 1px solid var(--note-border, transparent);
 		overflow: hidden;
-		transition: width 0.2s ease, min-width 0.2s ease, flex-basis 0.2s ease, border-color 0.2s ease;
+		transition: width 0.25s ease, min-width 0.25s ease, flex-basis 0.25s ease, border-color 0.2s ease;
 	}
 
 	.cover-rail:hover,

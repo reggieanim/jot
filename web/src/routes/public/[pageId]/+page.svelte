@@ -205,7 +205,7 @@
 		<main class="editor-main" style={themeStyle}><div class="editor-wrapper"><p class="error">{error}</p></div></main>
 	{:else}
 		<aside class="cover-rail" class:has-cover={!!cover}>
-			<Cover {cover} {apiUrl} readonly={true} />
+			<Cover {cover} {apiUrl} {title} {blocks} readonly={true} />
 		</aside>
 
 		<main class="editor-main" class:dark={darkMode} class:cinematic-on={cinematicEnabled} class:has-bg-color={!!bgColor} style="{themeStyle}{bgColor ? `--note-user-bg:${bgColor};` : ''}">
