@@ -52,6 +52,12 @@ func main() {
 	}
 	defer pool.Close()
 
+	logger.Info("running database migrations")
+	if err := platformpostgres.RunMigrations(ctx, pool.Pool, "/migrations"); err != nil {
+		logger.Fatal("run migrations", zap.Error(err))
+	}
+	logger.Info("database migrations complete")
+
 	natsConn, jetstream, err := platformnats.Connect(cfg.NATSURL)
 	if err != nil {
 		logger.Fatal("connect nats", zap.Error(err))
