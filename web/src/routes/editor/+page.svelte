@@ -19,7 +19,7 @@
 	let status = '';
 	let controlsOpen = false;
 	let draggedBlockId: string | null = null;
-	let cinematicEnabled = true;
+	let cinematicEnabled = false;
 	let darkMode = false;
 	let bgColor = '';
 	let moodStrength = 65;
@@ -210,6 +210,7 @@
 		cinematicEnabled = (e.target as HTMLInputElement).checked;
 		setThemeFromRgb(paletteBase, paletteAccent);
 		markMetaDirtyAndScheduleSync();
+		void syncPageMetaNow();
 	}
 
 	function handleDarkModeToggle(e: Event) {
@@ -448,7 +449,7 @@
 			cover = page.cover || null;
 			isPublished = !!page.published;
 			darkMode = page.dark_mode ?? darkMode;
-			cinematicEnabled = page.cinematic ?? cinematicEnabled;
+			cinematicEnabled = page.cinematic ?? false;
 			moodStrength = page.mood ?? moodStrength;
 			bgColor = page.bg_color ?? bgColor;
 			applyCoverPalette(cover);
@@ -485,7 +486,7 @@
 			cover = page.cover || cover;
 			isPublished = !!page.published;
 			darkMode = page.dark_mode ?? darkMode;
-			cinematicEnabled = page.cinematic ?? cinematicEnabled;
+			cinematicEnabled = page.cinematic ?? false;
 			moodStrength = page.mood ?? moodStrength;
 			bgColor = page.bg_color ?? bgColor;
 			blocks = page.blocks || blocks;
@@ -731,9 +732,21 @@
 	}
 
 	function updateTitle(e: Event) {
-		const input = e.target as HTMLInputElement;
-		title = input.value;
+		const el = e.target as HTMLElement;
+		title = el.textContent || '';
 		markMetaDirtyAndScheduleSync();
+	}
+
+	function handleTitleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+		}
+	}
+
+	function handleTitlePaste(e: ClipboardEvent) {
+		e.preventDefault();
+		const text = e.clipboardData?.getData('text/plain') || '';
+		document.execCommand('insertText', false, text.replace(/\n/g, ' '));
 	}
 
 	function handleCoverChange(e: CustomEvent) {
@@ -1064,15 +1077,18 @@
 		<div class="editor-wrapper">
 			<div class="page-header">
 				<div class="page-title-wrap">
-					<input
-						type="text"
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div
 						class="page-title"
 						class:cinematic={cinematicEnabled}
-						value={title}
-						size={Math.max((title || '').length + 4, 14)}
-						placeholder="Untitled"
+						contenteditable="true"
+						role="textbox"
+						aria-label="Page title"
+						data-placeholder="Untitled"
 						on:input={updateTitle}
-					/>
+						on:keydown={handleTitleKeydown}
+						on:paste={handleTitlePaste}
+					>{title}</div>
 					{#if status}
 						<div class="inline-status">{status}</div>
 					{/if}
@@ -1442,31 +1458,34 @@
 	}
 
 	.page-title {
-		font-size: 40px;
+		font-size: clamp(24px, 5vw, 40px);
 		font-weight: 700;
 		line-height: 1.2;
 		border: none;
 		background: transparent;
 		padding: 0;
 		margin: 0;
-		width: auto;
+		width: 100%;
 		max-width: 100%;
-		flex: 0 0 auto;
-		min-width: 14ch;
+		min-width: 0;
 		font-family: var(--font-display);
 		letter-spacing: 0.01em;
 		outline: none;
 		color: var(--note-title, #111827);
 		border-radius: 0;
-		border-left: none;
 		text-shadow: 0 0 28px color-mix(in srgb, var(--note-title-glow, transparent) 20%, transparent);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		word-wrap: break-word;
+		overflow-wrap: break-word;
+		word-break: break-word;
+		white-space: pre-wrap;
+		cursor: text;
+		-webkit-user-modify: read-write-plaintext-only;
 	}
 
-	.page-title::placeholder {
+	.page-title:empty::before {
+		content: attr(data-placeholder);
 		color: color-mix(in srgb, var(--note-muted, #6b7280) 55%, #ffffff);
+		pointer-events: none;
 	}
 
 	.blocks-container {

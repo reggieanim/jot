@@ -490,7 +490,7 @@
 	}
 
 	.page-title {
-		font-size: 40px;
+		font-size: clamp(24px, 5vw, 40px);
 		font-weight: 700;
 		line-height: 1.2;
 		padding: 0;
@@ -499,10 +499,10 @@
 		letter-spacing: 0.01em;
 		color: var(--note-title, #111827);
 		text-shadow: 0 0 28px color-mix(in srgb, var(--note-title-glow, transparent) 20%, transparent);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 		max-width: 100%;
+		word-wrap: break-word;
+		overflow-wrap: break-word;
+		word-break: break-word;
 	}
 
 	.blocks-container {
