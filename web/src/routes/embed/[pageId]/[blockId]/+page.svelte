@@ -4,41 +4,50 @@
 	import { normalizeGalleryItems } from '$lib/editor/blocks';
 	import { buildThemeStyle, DEFAULT_THEME, extractPaletteFromImage } from '$lib/editor/theme';
 	import type { ApiBlock, Rgb } from '$lib/editor/types';
+	import { onMount } from 'svelte';
 
-	export let data: {
-		block: ApiBlock;
-		page: { id: string; title: string; cover?: string; dark_mode?: boolean; cinematic?: boolean; mood?: number; bg_color?: string };
-	};
+	let { data }: {
+		data: {
+			block: ApiBlock;
+			page: { id: string; title: string; cover?: string; dark_mode?: boolean; cinematic?: boolean; mood?: number; bg_color?: string };
+		};
+	} = $props();
 
 	const FALLBACK_BASE: Rgb = [205, 207, 214];
 	const FALLBACK_ACCENT: Rgb = [124, 92, 255];
-	let themeStyle = DEFAULT_THEME;
-	let copied = false;
+	let themeStyle = $state(DEFAULT_THEME);
+	let copied = $state(false);
 
-	$: block = data.block;
-	$: pageTitle = data.page?.title || 'Untitled';
-	$: pageId = data.page?.id || $page.params.pageId;
-	$: pageCover = data.page?.cover || null;
-	$: darkMode = !!data.page?.dark_mode;
-	$: cinematicEnabled = data.page?.cinematic !== false;
-	$: moodStrength = Number(data.page?.mood ?? 65);
-	$: bgColor = data.page?.bg_color || '';
+	let block = $derived(data.block);
+	let pageTitle = $derived(data.page?.title || 'Untitled');
+	let pageId = $derived(data.page?.id || $page.params.pageId);
+	let pageCover = $derived(data.page?.cover || null);
+	let darkMode = $derived(!!data.page?.dark_mode);
+	let cinematicEnabled = $derived(data.page?.cinematic !== false);
+	let moodStrength = $derived(Number(data.page?.mood ?? 65));
+	let bgColor = $derived(data.page?.bg_color || '');
 
-	$: blockText = block ? plainTextFromBlockData(block.data) : '';
-	$: blockHtml = block ? htmlFromBlockData(block.data) : '';
-	$: ogDescription = blockText ? blockText.slice(0, 200) : `A block from "${pageTitle}"`;
-	$: ogImage = block?.data?.url && (block.type === 'image') ? block.data.url : pageCover;
-	$: publicPageUrl = `/public/${pageId}`;
-	$: currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+	let blockText = $derived(block ? plainTextFromBlockData(block.data) : '');
+	let blockHtml = $derived(block ? htmlFromBlockData(block.data) : '');
+	let ogDescription = $derived(blockText ? blockText.slice(0, 200) : `A block from "${pageTitle}"`);
+	let ogImage = $derived(block?.data?.url && (block.type === 'image') ? block.data.url : pageCover);
+	let publicPageUrl = $derived(`/public/${pageId}`);
+	let currentUrl = $derived(typeof window !== 'undefined' ? window.location.href : '');
 
 	async function applyCoverPalette(imageSrc: string | null) {
 		const palette = await extractPaletteFromImage(imageSrc, FALLBACK_BASE, FALLBACK_ACCENT);
 		themeStyle = buildThemeStyle(palette.base, palette.accent, { darkMode, cinematicEnabled, moodStrength });
 	}
 
-	$: if (typeof window !== 'undefined') {
+	onMount(() => {
 		void applyCoverPalette(pageCover);
-	}
+	});
+
+	$effect(() => {
+		if (typeof window !== 'undefined') {
+			void applyCoverPalette(pageCover);
+		}
+	});
 
 	function copyEmbedLink() {
 		if (typeof navigator !== 'undefined' && navigator.clipboard) {
