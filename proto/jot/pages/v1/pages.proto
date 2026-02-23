@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package jot.pages.v1;
+
+option go_package = "github.com/reggieanim/jot/proto/jot/pages/v1;pagesv1";
+
+service PagesRealtime {
+  rpc SubscribePage(SubscribePageRequest) returns (stream PageEvent);
+}
+
+service Pages {
+  rpc CreatePage(CreatePageRequest) returns (CreatePageResponse);
+  rpc GetPage(GetPageRequest) returns (GetPageResponse);
+  rpc UpdateBlocks(UpdateBlocksRequest) returns (UpdateBlocksResponse);
+}
+
+message SubscribePageRequest {
+  string page_id = 1;
+}
+
+message PageEvent {
+  string type = 1;
+  Page page = 2;
+  string timestamp = 3;
+}
+
+message Page {
+  string id = 1;
+  string title = 2;
+  string cover = 3;
+  repeated Block blocks = 4;
+  string created_at = 5;
+  string updated_at = 6;
+  string deleted_at = 7;
+}
+
+message Block {
+  string id = 1;
+  string page_id = 2;
+  string parent_id = 3;
+  string type = 4;
+  int32 position = 5;
+  string data_json = 6;
+}
+
+message CreatePageRequest {
+  string title = 1;
+  string cover = 2;
+  repeated Block blocks = 3;
+}
+
+message CreatePageResponse {
+  Page page = 1;
+}
+
+message GetPageRequest {
+  string page_id = 1;
+}
+
+message GetPageResponse {
+  Page page = 1;
+}
+
+message UpdateBlocksRequest {
+  string page_id = 1;
+  repeated Block blocks = 2;
+}
+
+message UpdateBlocksResponse {
+  Page page = 1;
+}

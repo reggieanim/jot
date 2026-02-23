@@ -1,0 +1,109 @@
+services:
+  postgres:
+    image: docker.io/postgres:16-alpine
+    environment:
+      POSTGRES_DB: jot
+      POSTGRES_USER: jot
+      POSTGRES_PASSWORD: jot
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../../migrations:/docker-entrypoint-initdb.d:ro
+
+  nats:
+    image: docker.io/nats:2.10-alpine
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+
+  minio:
+    image: docker.io/minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+  minio-init:
+    image: docker.io/minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      /usr/bin/mc mb -p local/jot-media || true;
+      /usr/bin/mc anonymous set download local/jot-media || true;
+      "
+
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:0.103.1
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
+  loki:
+    image: docker.io/grafana/loki:3.0.0
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    ports:
+      - "3100:3100"
+
+  tempo:
+    image: docker.io/grafana/tempo:2.5.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    ports:
+      - "3200:3200"
+
+  grafana:
+    image: docker.io/grafana/grafana:11.1.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  jotd:
+    build:
+      context: ../../
+      dockerfile: deployments/podman/Dockerfile
+    image: localhost/jotd:dev
+    environment:
+      JOT_HTTP_ADDR: ":8080"
+      JOT_GRPC_ADDR: ":9090"
+      JOT_DATABASE_URL: "postgres://jot:jot@postgres:5432/jot?sslmode=disable"
+      JOT_NATS_URL: "nats://nats:4222"
+      JOT_NATS_STREAM: "JOT_EVENTS"
+      JOT_NATS_SUBJECT: "jot.pages.events"
+      JOT_S3_ENDPOINT: "minio:9000"
+      JOT_S3_ACCESS_KEY: "minioadmin"
+      JOT_S3_SECRET_KEY: "minioadmin"
+      JOT_S3_BUCKET: "jot-media"
+      JOT_S3_USE_SSL: "false"
+      JOT_S3_PUBLIC_URL: "http://localhost:9000/jot-media"
+      JOT_OTLP_ENDPOINT: "otel-collector:4317"
+      JOT_LOG_LEVEL: "info"
+    depends_on:
+      - postgres
+      - nats
+      - minio-init
+      - otel-collector
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+
+volumes:
+  pgdata:
+  miniodata:

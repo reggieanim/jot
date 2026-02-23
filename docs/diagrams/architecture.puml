@@ -1,0 +1,22 @@
+@startuml
+skinparam componentStyle rectangle
+
+actor User
+component "SvelteKit Frontend\n(later)" as Frontend
+component "jotd (Go Modular Monolith)" as Jotd
+database "PostgreSQL\n(pages + blocks, jsonb block data)" as Postgres
+queue "NATS JetStream" as Nats
+component "OpenTelemetry Collector" as OTel
+component "Tempo" as Tempo
+component "Loki" as Loki
+component "Grafana" as Grafana
+
+User --> Frontend
+Frontend --> Jotd : HTTP + gRPC
+Jotd --> Postgres : flat blocks query
+Jotd --> Nats : page events
+Jotd --> OTel : traces
+OTel --> Tempo
+Grafana --> Tempo
+Grafana --> Loki
+@enduml

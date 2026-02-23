@@ -1,0 +1,131 @@
+# ─────────────────────────────────────────────────
+# Jot – Coolify / Hetzner production compose
+# ─────────────────────────────────────────────────
+# Deploy this file in Coolify as a "Docker Compose" resource.
+# Set the env vars below in Coolify's UI under Environment Variables.
+#
+# Required env vars to set in Coolify:
+#   POSTGRES_PASSWORD      – strong random password
+#   MINIO_ROOT_PASSWORD    – strong random password
+#   JOT_S3_PUBLIC_URL      – e.g. https://s3.yourdomain.com/jot-media
+#   WEB_ORIGIN             – e.g. https://jot.yourdomain.com
+#   PUBLIC_API_URL          – e.g. https://api.jot.yourdomain.com
+#   JOT_CORS_ORIGINS       – e.g. https://jot.yourdomain.com
+# ─────────────────────────────────────────────────
+
+services:
+  # ── Postgres ──
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: jot
+      POSTGRES_USER: jot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jot"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── NATS with JetStream ──
+  nats:
+    image: nats:2.10-alpine
+    restart: unless-stopped
+    command: ["-js", "-sd", "/data"]
+    volumes:
+      - natsdata:/data
+    healthcheck:
+      test: ["CMD", "nats-server", "--signal", "ldm"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ── MinIO (S3-compatible storage) ──
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set local http://minio:9000 minioadmin $${MINIO_ROOT_PASSWORD}; do sleep 1; done;
+      /usr/bin/mc mb -p local/jot-media || true;
+      /usr/bin/mc anonymous set download local/jot-media || true;
+      "
+    environment:
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+
+  # ── Go API ──
+  jotd:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      JOT_ENV: production
+      JOT_HTTP_ADDR: ":8080"
+      JOT_GRPC_ADDR: ":9090"
+      JOT_DATABASE_URL: "postgres://jot:${POSTGRES_PASSWORD}@postgres:5432/jot?sslmode=disable"
+      JOT_NATS_URL: "nats://nats:4222"
+      JOT_NATS_STREAM: "JOT_EVENTS"
+      JOT_NATS_SUBJECT: "jot.pages.events"
+      JOT_S3_ENDPOINT: "minio:9000"
+      JOT_S3_ACCESS_KEY: "minioadmin"
+      JOT_S3_SECRET_KEY: "${MINIO_ROOT_PASSWORD}"
+      JOT_S3_BUCKET: "jot-media"
+      JOT_S3_USE_SSL: "false"
+      JOT_S3_PUBLIC_URL: "${JOT_S3_PUBLIC_URL:-http://localhost:9000/jot-media}"
+      JOT_CORS_ORIGINS: "${JOT_CORS_ORIGINS:-http://localhost:3000}"
+      JOT_OTLP_ENDPOINT: ""
+      JOT_LOG_LEVEL: "info"
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+
+  # ── SvelteKit Frontend ──
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      jotd:
+        condition: service_healthy
+    environment:
+      PORT: "3000"
+      ORIGIN: "${WEB_ORIGIN:-http://localhost:3000}"
+      PUBLIC_API_URL: "${PUBLIC_API_URL:-http://jotd:8080}"
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
+  natsdata:
+  miniodata:

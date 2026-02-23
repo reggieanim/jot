@@ -1,0 +1,21 @@
+# dependencies
+web/node_modules
+node_modules
+
+# build output
+web/build
+web/.svelte-kit
+
+# dev tooling
+.git
+.gitignore
+.vscode
+*.md
+docs/
+deployments/podman/grafana
+deployments/podman/otel-collector-config.yaml
+deployments/podman/tempo.yaml
+
+# os
+.DS_Store
+Thumbs.db
