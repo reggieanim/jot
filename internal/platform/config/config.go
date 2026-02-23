@@ -14,6 +14,7 @@ type Config struct {
 	HTTPAddr     string
 	GRPCAddr     string
 	CORSOrigins  string
+	MigrationsDir string
 	DatabaseURL  string
 	NATSURL      string
 	NATSStream   string
@@ -37,6 +38,7 @@ func Load() (Config, error) {
 		HTTPAddr:     getString("JOT_HTTP_ADDR", ":8080"),
 		GRPCAddr:     getString("JOT_GRPC_ADDR", ":9090"),
 		CORSOrigins:  getString("JOT_CORS_ORIGINS", "http://localhost:5173,http://localhost:4173,http://localhost:3000"),
+		MigrationsDir: getString("JOT_MIGRATIONS_DIR", ""),
 		DatabaseURL:  getString("JOT_DATABASE_URL", "postgres://jot:jot@localhost:5432/jot?sslmode=disable"),
 		NATSURL:      getString("JOT_NATS_URL", "nats://localhost:4222"),
 		NATSStream:   getString("JOT_NATS_STREAM", "JOT_EVENTS"),

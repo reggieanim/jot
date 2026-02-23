@@ -2,8 +2,6 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import moderatRegularWoff from '$lib/assets/Moderat-Regular.woff';
 
-	let { children } = $props();
-
 	const fontFaceCss = `@font-face {
 		font-family: 'Moderat';
 		src: url('${moderatRegularWoff}') format('woff');
@@ -18,7 +16,7 @@
 	{@html `<style>${fontFaceCss}</style>`}
 </svelte:head>
 
-{@render children()}
+<slot />
 
 <style>
 	:global(body) {

@@ -52,11 +52,16 @@ func main() {
 	}
 	defer pool.Close()
 
+	migrationsDir, err := platformpostgres.ResolveMigrationsDir(cfg.MigrationsDir)
+	if err != nil {
+		logger.Fatal("resolve migrations dir", zap.Error(err))
+	}
+
 	logger.Info("running database migrations")
-	if err := platformpostgres.RunMigrations(ctx, pool.Pool, "/migrations"); err != nil {
+	if err := platformpostgres.RunMigrations(ctx, pool.Pool, migrationsDir); err != nil {
 		logger.Fatal("run migrations", zap.Error(err))
 	}
-	logger.Info("database migrations complete")
+	logger.Info("database migrations complete", zap.String("dir", migrationsDir))
 
 	natsConn, jetstream, err := platformnats.Connect(cfg.NATSURL)
 	if err != nil {

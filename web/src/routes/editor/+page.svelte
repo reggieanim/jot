@@ -50,6 +50,7 @@
 	let viewerName = '';
 	let typingLocks: Record<string, { sessionId: string; userName: string; expiresAt: number }> = {};
 	let activeUsers: Record<string, { sessionId: string; userName: string; lastSeen: number }> = {};
+	let visibleUsers: Array<{ sessionId: string; userName: string; lastSeen: number }> = [];
 	const typingLockTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 	const typingHeartbeat: Record<string, number> = {};
 	let presenceHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
