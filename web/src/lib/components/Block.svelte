@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
 	import { htmlFromBlockData, plainTextFromBlockData, sanitizeRichText } from '$lib/editor/richtext';
+	import { copyTextToClipboard } from '$lib/utils/clipboard';
 
 	export let id: string;
 	export let type: string;
@@ -226,12 +227,12 @@
 		dispatch('delete', { id });
 	}
 
-	function handleShare() {
+	async function handleShare() {
 		if (!pageId || !id) return;
 		const origin = typeof window !== 'undefined' ? window.location.origin : '';
 		const embedUrl = `${origin}/embed/${encodeURIComponent(pageId)}/${encodeURIComponent(id)}`;
-		if (typeof navigator !== 'undefined' && navigator.clipboard) {
-			navigator.clipboard.writeText(embedUrl);
+		const copied = await copyTextToClipboard(embedUrl);
+		if (copied) {
 			showShareToast = true;
 			setTimeout(() => (showShareToast = false), 2000);
 		}

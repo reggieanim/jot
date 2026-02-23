@@ -3,6 +3,7 @@
 	import { plainTextFromBlockData, htmlFromBlockData } from '$lib/editor/richtext';
 	import { normalizeGalleryItems } from '$lib/editor/blocks';
 	import { buildThemeStyle, DEFAULT_THEME, extractPaletteFromImage } from '$lib/editor/theme';
+	import { copyTextToClipboard } from '$lib/utils/clipboard';
 	import type { ApiBlock, Rgb } from '$lib/editor/types';
 	import { onMount } from 'svelte';
 
@@ -49,9 +50,9 @@
 		}
 	});
 
-	function copyEmbedLink() {
-		if (typeof navigator !== 'undefined' && navigator.clipboard) {
-			navigator.clipboard.writeText(currentUrl);
+	async function copyEmbedLink() {
+		const copiedOk = await copyTextToClipboard(currentUrl);
+		if (copiedOk) {
 			copied = true;
 			setTimeout(() => (copied = false), 2000);
 		}

@@ -3,6 +3,7 @@
 	import type { ApiBlock } from '$lib/editor/types';
 	import { normalizeGalleryItems } from '$lib/editor/blocks';
 	import { htmlFromBlockData } from '$lib/editor/richtext';
+	import { copyTextToClipboard } from '$lib/utils/clipboard';
 
 	export let blocks: ApiBlock[] = [];
 	export let interactive = false;
@@ -32,12 +33,12 @@
 		dispatch('select', { blockId });
 	}
 
-	function handleShare(blockId: string) {
+	async function handleShare(blockId: string) {
 		if (!pageId || !blockId) return;
 		const origin = typeof window !== 'undefined' ? window.location.origin : '';
 		const embedUrl = `${origin}/embed/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}`;
-		if (typeof navigator !== 'undefined' && navigator.clipboard) {
-			navigator.clipboard.writeText(embedUrl);
+		const copied = await copyTextToClipboard(embedUrl);
+		if (copied) {
 			shareToastBlockId = blockId;
 			setTimeout(() => (shareToastBlockId = ''), 2000);
 		}
