@@ -19,7 +19,6 @@
 	let status = '';
 	let controlsOpen = false;
 	let draggedBlockId: string | null = null;
-	let blockIdCounter = 1;
 	let cinematicEnabled = true;
 	let darkMode = false;
 	let bgColor = '';
@@ -238,8 +237,7 @@
 		if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
 			return `tmp-${crypto.randomUUID()}`;
 		}
-		blockIdCounter += 1;
-		return `tmp-${Date.now()}-${blockIdCounter}-${Math.random().toString(36).slice(2, 8)}`;
+		return `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	}
 
 	function makeGalleryItemId() {
