@@ -106,8 +106,8 @@ services:
       JOT_OTLP_ENDPOINT: ""
       JOT_LOG_LEVEL: "info"
     ports:
-      - "8080:8080"
-      - "9090:9090"
+      - "8081:8080"
+      - "9091:9090"
 
   # ── SvelteKit Frontend ──
   web:
