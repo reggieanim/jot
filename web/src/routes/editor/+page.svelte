@@ -13,6 +13,7 @@
 
 	let pageId = '';
 	let title = 'Untitled';
+	let titleEl: HTMLDivElement;
 	let cover: string | null = null;
 	let isPublished = false;
 	let blocks: ApiBlock[] = [{ id: generateId(), type: 'paragraph', position: 0, data: { text: '' } }];
@@ -446,6 +447,7 @@
 
 			const page: ApiPage = await response.json();
 			title = page.title;
+			if (titleEl) titleEl.textContent = title;
 			cover = page.cover || null;
 			isPublished = !!page.published;
 			darkMode = page.dark_mode ?? darkMode;
@@ -483,6 +485,7 @@
 			const page: ApiPage = await response.json();
 			pageId = page.id;
 			title = page.title || title;
+			if (titleEl) titleEl.textContent = title;
 			cover = page.cover || cover;
 			isPublished = !!page.published;
 			darkMode = page.dark_mode ?? darkMode;
@@ -701,6 +704,7 @@
 				const latest = conflictPayload?.page as ApiPage | undefined;
 				if (latest) {
 					title = latest.title || title;
+					if (titleEl) titleEl.textContent = title;
 					cover = latest.cover || null;
 					darkMode = latest.dark_mode ?? darkMode;
 					cinematicEnabled = latest.cinematic ?? cinematicEnabled;
@@ -835,6 +839,7 @@
 			if (hasUnsyncedChanges || hasUnsyncedMeta || syncInFlight || metaSyncInFlight) return;
 
 			title = incoming.title || title;
+			if (titleEl) titleEl.textContent = title;
 			cover = incoming.cover || null;
 			isPublished = !!incoming.published;
 			darkMode = incoming.dark_mode ?? darkMode;
@@ -935,6 +940,7 @@
 		setupViewerIdentity();
 		markSelfActive();
 		window.addEventListener('beforeunload', handleBeforeUnload);
+		if (titleEl) titleEl.textContent = title;
 	});
 
 	$: {
@@ -1079,6 +1085,7 @@
 				<div class="page-title-wrap">
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
 					<div
+						bind:this={titleEl}
 						class="page-title"
 						class:cinematic={cinematicEnabled}
 						contenteditable="true"
@@ -1088,7 +1095,7 @@
 						on:input={updateTitle}
 						on:keydown={handleTitleKeydown}
 						on:paste={handleTitlePaste}
-					>{title}</div>
+					></div>
 					{#if status}
 						<div class="inline-status">{status}</div>
 					{/if}
