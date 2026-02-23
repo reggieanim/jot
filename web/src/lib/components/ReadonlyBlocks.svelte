@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onMount } from 'svelte';
 	import type { ApiBlock } from '$lib/editor/types';
 	import { normalizeGalleryItems } from '$lib/editor/blocks';
 	import { htmlFromBlockData } from '$lib/editor/richtext';
@@ -32,6 +32,68 @@
 		if (!interactive) return;
 		dispatch('select', { blockId });
 	}
+
+	let canvasRefs: Record<string, HTMLCanvasElement> = {};
+
+	function bindCanvas(el: HTMLCanvasElement, blockId: string) {
+		canvasRefs[blockId] = el;
+		// Run the canvas code as soon as the element is bound
+		const block = blocks.find((b, i) => blockIdOf(b, i) === blockId);
+		if (block?.data?.code) {
+			// Small delay to ensure the canvas is fully laid out
+			requestAnimationFrame(() => runCanvasBlock(blockId, block.data.code));
+		}
+		return {
+			destroy() {
+				stopCanvasBlock(blockId);
+				delete canvasRefs[blockId];
+			}
+		};
+	}
+
+	let canvasRafIds: Record<string, number> = {};
+
+	function stopCanvasBlock(blockId: string) {
+		if (canvasRafIds[blockId]) {
+			cancelAnimationFrame(canvasRafIds[blockId]);
+			delete canvasRafIds[blockId];
+		}
+	}
+
+	function runCanvasBlock(blockId: string, code: string) {
+		stopCanvasBlock(blockId);
+		const el = canvasRefs[blockId];
+		if (!el) return;
+		const ctx = el.getContext('2d');
+		if (!ctx) return;
+		ctx.clearRect(0, 0, el.width, el.height);
+
+		let loopFn: ((t: number) => void) | null = null;
+		const loop = (fn: (t: number) => void) => { loopFn = fn; };
+
+		try {
+			const fn = new Function('canvas', 'ctx', 'loop', code);
+			fn(el, ctx, loop);
+		} catch { /* swallow in readonly */ }
+
+		if (loopFn) {
+			const userLoop = loopFn;
+			let running = true;
+			const tick = (t: number) => {
+				if (!running) return;
+				try { userLoop(t); } catch { running = false; return; }
+				canvasRafIds[blockId] = requestAnimationFrame(tick);
+			};
+			canvasRafIds[blockId] = requestAnimationFrame(tick);
+		}
+	}
+
+	onMount(() => {
+		// Cleanup animation frames when component is destroyed
+		return () => {
+			Object.keys(canvasRafIds).forEach(stopCanvasBlock);
+		};
+	});
 
 	async function handleShare(blockId: string) {
 		if (!pageId || !blockId) return;
@@ -110,16 +172,34 @@
 								</div>
 							{/each}
 						</div>
-					{/if}
-				{:else if block.type === 'embed'}
-					{#if block.data?.url}
-						<iframe src={block.data.url} class="embed-frame" title="Embedded content"></iframe>
-					{/if}
-				{:else}
-					<div class="editable readonly-paragraph" class:dimmed={dimOriginal} class:strike={dimOriginal && draftKind === 'strike'}>{@html htmlOf(block)}</div>
 				{/if}
-
-				{#if hasDraft}
+			{:else if block.type === 'code'}
+				<div class="code-block">
+					<div class="code-toolbar">
+						<span class="code-lang-badge">{block.data?.language || 'javascript'}</span>
+						<span class="code-label">Code</span>
+					</div>
+					<pre class="code-readonly"><code>{block.data?.code || ''}</code></pre>
+				</div>
+			{:else if block.type === 'canvas'}
+				{@const cBlockId = blockIdOf(block, index)}
+				<div class="canvas-block canvas-clean">
+					<div class="canvas-preview">
+						<canvas
+							use:bindCanvas={cBlockId}
+							width={block.data?.width || 600}
+							height={block.data?.height || 400}
+							class="canvas-el"
+						></canvas>
+					</div>
+				</div>
+			{:else if block.type === 'embed'}
+				{#if block.data?.url}
+					<iframe src={block.data.url} class="embed-frame" title="Embedded content"></iframe>
+				{/if}
+			{:else}
+				<div class="editable readonly-paragraph" class:dimmed={dimOriginal} class:strike={dimOriginal && draftKind === 'strike'}>{@html htmlOf(block)}</div>
+			{/if}				{#if hasDraft}
 					<div class="proofread-overlay" class:assert={draftKind === 'assert'} class:debunk={draftKind === 'debunk'} class:strike={draftKind === 'strike'}>
 						<div class="proofread-kind">{draftKind}</div>
 						<p>{draftStates[blockId].text}</p>
@@ -427,5 +507,134 @@
 		margin: 0;
 		white-space: pre-wrap;
 		line-height: 1.5;
+	}
+
+	/* ---- Code block (readonly) ---- */
+	.code-block {
+		border: 1px solid var(--note-border, #d1d5db);
+		border-radius: 10px;
+		overflow: hidden;
+		background: #1e1e2e;
+	}
+
+	.code-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 12px;
+		background: #181825;
+		border-bottom: 1px solid #313244;
+	}
+
+	.code-lang-badge {
+		background: #313244;
+		color: #cdd6f4;
+		border-radius: 6px;
+		padding: 3px 8px;
+		font-size: 12px;
+		font-weight: 600;
+	}
+
+	.code-label {
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #6c7086;
+	}
+
+	.code-readonly {
+		margin: 0;
+		padding: 14px 16px;
+		background: #1e1e2e;
+		color: #cdd6f4;
+		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', monospace;
+		font-size: 13px;
+		line-height: 1.6;
+		overflow-x: auto;
+		white-space: pre;
+		tab-size: 2;
+	}
+
+	.code-readonly code {
+		font-family: inherit;
+	}
+
+	/* ---- Canvas block (readonly) ---- */
+	.canvas-block {
+		border: 1px solid var(--note-border, #d1d5db);
+		border-radius: 10px;
+		overflow: hidden;
+		background: #1e1e2e;
+	}
+
+	.canvas-block.canvas-clean {
+		border: none;
+		background: transparent;
+		border-radius: 0;
+	}
+
+	.canvas-block.canvas-clean .canvas-preview {
+		padding: 0;
+		background: transparent;
+	}
+
+	.canvas-block.canvas-clean .canvas-el {
+		box-shadow: none;
+		border-radius: 8px;
+	}
+
+	.canvas-toolbar-ro {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 12px;
+		background: #181825;
+		border-bottom: 1px solid #313244;
+	}
+
+	.canvas-label {
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #6c7086;
+		margin-right: auto;
+	}
+
+	.canvas-dim-info {
+		font-size: 11px;
+		color: #585b70;
+	}
+
+	.canvas-source {
+		border-bottom: 1px solid #313244;
+	}
+
+	.canvas-source summary {
+		padding: 6px 14px;
+		font-size: 12px;
+		color: #6c7086;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.canvas-source summary:hover {
+		color: #cdd6f4;
+	}
+
+	.canvas-preview {
+		background: #ffffff;
+		padding: 8px;
+		overflow: auto;
+		display: flex;
+		justify-content: center;
+	}
+
+	.canvas-el {
+		max-width: 100%;
+		height: auto;
+		border-radius: 4px;
+		box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
 	}
 </style>

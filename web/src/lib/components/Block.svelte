@@ -55,7 +55,9 @@
 		{ id: 'divider', label: 'Divider', icon: '—', description: 'Visual divider' },
 		{ id: 'image', label: 'Image', icon: '🖼', description: 'Upload or embed image' },
 		{ id: 'gallery', label: 'Gallery', icon: '▦', description: '2-4 image columns' },
-		{ id: 'embed', label: 'Embed', icon: '◆', description: 'Embed external content' }
+		{ id: 'embed', label: 'Embed', icon: '◆', description: 'Embed external content' },
+		{ id: 'code', label: 'Code', icon: '</>', description: 'Code block with syntax highlighting' },
+		{ id: 'canvas', label: 'Canvas', icon: '🎨', description: 'JavaScript canvas playground' }
 	];
 
 	function saveText() {
@@ -460,6 +462,128 @@
 		]);
 	}
 
+	/* ---- Code block ---- */
+	let codeText = data?.code || '';
+	let codeLang = data?.language || 'javascript';
+	const CODE_LANGUAGES = ['javascript', 'typescript', 'html', 'css', 'python', 'go', 'rust', 'json', 'sql', 'bash', 'markdown'];
+
+	function handleCodeInput(e: Event) {
+		if (isLocked) return;
+		const target = e.target as HTMLTextAreaElement;
+		codeText = target.value;
+		dispatch('update', { id, type, data: { ...data, code: codeText, language: codeLang } });
+	}
+
+	function handleCodeLang(e: Event) {
+		if (isLocked) return;
+		codeLang = (e.target as HTMLSelectElement).value;
+		dispatch('update', { id, type, data: { ...data, code: codeText, language: codeLang } });
+	}
+
+	function handleCodeKeydown(e: KeyboardEvent) {
+		if (e.key === 'Tab') {
+			e.preventDefault();
+			const ta = e.target as HTMLTextAreaElement;
+			const start = ta.selectionStart;
+			const end = ta.selectionEnd;
+			codeText = codeText.substring(0, start) + '  ' + codeText.substring(end);
+			ta.value = codeText;
+			ta.selectionStart = ta.selectionEnd = start + 2;
+			dispatch('update', { id, type, data: { ...data, code: codeText, language: codeLang } });
+		}
+	}
+
+	/* ---- Canvas block ---- */
+	let canvasCode = data?.code || 'const ctx = canvas.getContext("2d");\nctx.fillStyle = "#7c5cff";\nctx.fillRect(10, 10, 100, 80);';
+	let canvasEl: HTMLCanvasElement;
+	let canvasError = '';
+	let canvasWidth = Number(data?.width) || 600;
+	let canvasHeight = Number(data?.height) || 400;
+	let canvasRunning = false;
+	let canvasRafId = 0;
+
+	function stopCanvas() {
+		if (canvasRafId) cancelAnimationFrame(canvasRafId);
+		canvasRafId = 0;
+		canvasRunning = false;
+	}
+
+	function runCanvas() {
+		stopCanvas();
+		canvasError = '';
+		if (!canvasEl) return;
+		const ctx = canvasEl.getContext('2d');
+		if (!ctx) return;
+		ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+
+		// Build a sandboxed loop: user code gets `loop(fn)` to register a per-frame callback
+		let loopFn: ((t: number) => void) | null = null;
+		const loop = (fn: (t: number) => void) => { loopFn = fn; };
+
+		try {
+			const fn = new Function('canvas', 'ctx', 'loop', canvasCode);
+			fn(canvasEl, ctx, loop);
+		} catch (err: any) {
+			canvasError = err?.message || String(err);
+			return;
+		}
+
+		if (loopFn) {
+			canvasRunning = true;
+			const userLoop = loopFn;
+			const tick = (t: number) => {
+				if (!canvasRunning) return;
+				try {
+					userLoop(t);
+				} catch (err: any) {
+					canvasError = err?.message || String(err);
+					stopCanvas();
+					return;
+				}
+				canvasRafId = requestAnimationFrame(tick);
+			};
+			canvasRafId = requestAnimationFrame(tick);
+		}
+	}
+
+	function handleCanvasCodeInput(e: Event) {
+		if (isLocked) return;
+		const target = e.target as HTMLTextAreaElement;
+		canvasCode = target.value;
+		dispatch('update', { id, type, data: { ...data, code: canvasCode, width: canvasWidth, height: canvasHeight } });
+	}
+
+	function handleCanvasCodeKeydown(e: KeyboardEvent) {
+		if (e.key === 'Tab') {
+			e.preventDefault();
+			const ta = e.target as HTMLTextAreaElement;
+			const start = ta.selectionStart;
+			const end = ta.selectionEnd;
+			canvasCode = canvasCode.substring(0, start) + '  ' + canvasCode.substring(end);
+			ta.value = canvasCode;
+			ta.selectionStart = ta.selectionEnd = start + 2;
+			dispatch('update', { id, type, data: { ...data, code: canvasCode, width: canvasWidth, height: canvasHeight } });
+		}
+	}
+
+	function handleCanvasResize(dimension: 'width' | 'height', e: Event) {
+		if (isLocked) return;
+		const val = Math.max(100, Math.min(2000, Number((e.target as HTMLInputElement).value) || 600));
+		if (dimension === 'width') canvasWidth = val;
+		else canvasHeight = val;
+		dispatch('update', { id, type, data: { ...data, code: canvasCode, width: canvasWidth, height: canvasHeight } });
+	}
+
+	$: if (type === 'code') {
+		codeText = data?.code ?? codeText;
+		codeLang = data?.language ?? codeLang;
+	}
+	$: if (type === 'canvas') {
+		canvasCode = data?.code ?? canvasCode;
+		canvasWidth = Number(data?.width) || canvasWidth;
+		canvasHeight = Number(data?.height) || canvasHeight;
+	}
+
 	export function focus() {
 		tick().then(() => {
 			contentEl?.focus();
@@ -488,6 +612,7 @@
 
 	onDestroy(() => {
 		clearTimeout(saveTimeout);
+		stopCanvas();
 	});
 </script>
 
@@ -688,6 +813,63 @@
 					/>
 				</div>
 			{/if}
+		{:else if type === 'code'}
+			<div class="code-block">
+				<div class="code-toolbar">
+					<select class="code-lang-select" value={codeLang} on:change={handleCodeLang}>
+						{#each CODE_LANGUAGES as lang}
+							<option value={lang}>{lang}</option>
+						{/each}
+					</select>
+					<span class="code-label">Code</span>
+				</div>
+				<textarea
+					class="code-editor"
+					spellcheck="false"
+					autocomplete="off"
+					autocorrect="off"
+					autocapitalize="off"
+					wrap="off"
+					value={codeText}
+					placeholder="Write your code here..."
+					on:input={handleCodeInput}
+					on:keydown={handleCodeKeydown}
+				></textarea>
+			</div>
+		{:else if type === 'canvas'}
+			<div class="canvas-block">
+				<div class="canvas-toolbar">
+					<span class="canvas-label">Canvas JS</span>
+					<div class="canvas-dims">
+						<input type="number" class="canvas-dim-input" value={canvasWidth} min="100" max="2000" on:change={(e) => handleCanvasResize('width', e)} title="Width" />
+						<span class="canvas-dim-x">×</span>
+						<input type="number" class="canvas-dim-input" value={canvasHeight} min="100" max="2000" on:change={(e) => handleCanvasResize('height', e)} title="Height" />
+					</div>
+					{#if canvasRunning}
+						<button class="canvas-stop-btn" on:click={stopCanvas}>■ Stop</button>
+					{:else}
+						<button class="canvas-run-btn" on:click={runCanvas}>▶ Run</button>
+					{/if}
+				</div>
+				<textarea
+					class="code-editor canvas-code"
+					spellcheck="false"
+					autocomplete="off"
+					autocorrect="off"
+					autocapitalize="off"
+					wrap="off"
+					value={canvasCode}
+					placeholder={'const ctx = canvas.getContext("2d");\nctx.fillStyle = "#7c5cff";\nctx.fillRect(10, 10, 100, 80);'}
+					on:input={handleCanvasCodeInput}
+					on:keydown={handleCanvasCodeKeydown}
+				></textarea>
+				{#if canvasError}
+					<div class="canvas-error">{canvasError}</div>
+				{/if}
+				<div class="canvas-preview">
+					<canvas bind:this={canvasEl} width={canvasWidth} height={canvasHeight} class="canvas-el"></canvas>
+				</div>
+			</div>
 		{:else}
 			<div
 				bind:this={contentEl}
@@ -1216,5 +1398,175 @@
 	.slash-desc {
 		font-size: 12px;
 		color: var(--note-muted, #6b7280);
+	}
+
+	/* ---- Code block ---- */
+	.code-block {
+		border: 1px solid var(--note-border, #d1d5db);
+		border-radius: 10px;
+		overflow: hidden;
+		background: #1e1e2e;
+	}
+
+	.code-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 12px;
+		background: #181825;
+		border-bottom: 1px solid #313244;
+	}
+
+	.code-lang-select {
+		background: #313244;
+		color: #cdd6f4;
+		border: 1px solid #45475a;
+		border-radius: 6px;
+		padding: 4px 8px;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+		outline: none;
+	}
+
+	.code-label {
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #6c7086;
+	}
+
+	.code-editor {
+		width: 100%;
+		min-height: 120px;
+		max-height: 600px;
+		resize: vertical;
+		padding: 14px 16px;
+		background: #1e1e2e;
+		color: #cdd6f4;
+		border: none;
+		outline: none;
+		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+		font-size: 13px;
+		line-height: 1.6;
+		tab-size: 2;
+		white-space: pre;
+		overflow: auto;
+		box-sizing: border-box;
+	}
+
+	.code-editor::placeholder {
+		color: #585b70;
+	}
+
+	/* ---- Canvas block ---- */
+	.canvas-block {
+		border: 1px solid var(--note-border, #d1d5db);
+		border-radius: 10px;
+		overflow: hidden;
+		background: #1e1e2e;
+	}
+
+	.canvas-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 12px;
+		background: #181825;
+		border-bottom: 1px solid #313244;
+		flex-wrap: wrap;
+	}
+
+	.canvas-label {
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #6c7086;
+		margin-right: auto;
+	}
+
+	.canvas-dims {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.canvas-dim-input {
+		width: 60px;
+		background: #313244;
+		color: #cdd6f4;
+		border: 1px solid #45475a;
+		border-radius: 6px;
+		padding: 3px 6px;
+		font-size: 12px;
+		text-align: center;
+		outline: none;
+	}
+
+	.canvas-dim-x {
+		color: #6c7086;
+		font-size: 12px;
+	}
+
+	.canvas-run-btn {
+		background: #a6e3a1;
+		color: #1e1e2e;
+		border: none;
+		border-radius: 6px;
+		padding: 4px 12px;
+		font-size: 12px;
+		font-weight: 700;
+		cursor: pointer;
+		transition: background 0.12s;
+	}
+
+	.canvas-run-btn:hover {
+		background: #94e2d5;
+	}
+
+	.canvas-stop-btn {
+		background: #f38ba8;
+		color: #1e1e2e;
+		border: none;
+		border-radius: 6px;
+		padding: 4px 12px;
+		font-size: 12px;
+		font-weight: 700;
+		cursor: pointer;
+		transition: background 0.12s;
+	}
+
+	.canvas-stop-btn:hover {
+		background: #eba0ac;
+	}
+
+	.canvas-code {
+		border-bottom: 1px solid #313244;
+	}
+
+	.canvas-error {
+		padding: 8px 14px;
+		background: #45273a;
+		color: #f38ba8;
+		font-size: 12px;
+		font-family: 'JetBrains Mono', 'Fira Code', monospace;
+		border-bottom: 1px solid #313244;
+	}
+
+	.canvas-preview {
+		background: #ffffff;
+		padding: 8px;
+		overflow: auto;
+		display: flex;
+		justify-content: center;
+	}
+
+	.canvas-el {
+		max-width: 100%;
+		height: auto;
+		border-radius: 4px;
+		box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
 	}
 </style>
