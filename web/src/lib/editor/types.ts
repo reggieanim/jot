@@ -18,6 +18,7 @@ export type ApiPage = {
 	blocks?: ApiBlock[];
 	proofread_count?: number;
 	block_count?: number;
+	read_count?: number;
 	updated_at?: string;
 	deleted_at?: string;
 };

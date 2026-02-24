@@ -20,12 +20,14 @@ func (clock fakeClock) Now() time.Time {
 type inMemoryRepo struct {
 	store      map[domain.PageID]domain.Page
 	proofreads map[domain.ProofreadID]domain.Proofread
+	reads      map[domain.PageID]map[string]struct{}
 }
 
 func newInMemoryRepo() *inMemoryRepo {
 	return &inMemoryRepo{
 		store:      map[domain.PageID]domain.Page{},
 		proofreads: map[domain.ProofreadID]domain.Proofread{},
+		reads:      map[domain.PageID]map[string]struct{}{},
 	}
 }
 
@@ -158,6 +160,20 @@ func (repo *inMemoryRepo) ListPublishedFeed(_ context.Context, limit, offset int
 		end = len(all)
 	}
 	return all[offset:end], nil
+}
+
+func (repo *inMemoryRepo) RecordOrganicRead(_ context.Context, pageID domain.PageID, readerKey string) (bool, error) {
+	if _, ok := repo.reads[pageID]; !ok {
+		repo.reads[pageID] = map[string]struct{}{}
+	}
+	if _, exists := repo.reads[pageID][readerKey]; exists {
+		return false, nil
+	}
+	repo.reads[pageID][readerKey] = struct{}{}
+	page := repo.store[pageID]
+	page.ReadCount++
+	repo.store[pageID] = page
+	return true, nil
 }
 
 type noOpEvents struct{}

@@ -1,6 +1,8 @@
 package httpadapter
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -223,7 +225,23 @@ func (handler *Handler) getPublicPage(ctx *gin.Context) {
 		handler.handleError(ctx, err)
 		return
 	}
+	readerKey := makeOrganicReaderKey(ctx)
+	if unique, err := handler.service.RecordPublicRead(ctx.Request.Context(), pageID, readerKey); err != nil {
+		handler.logger.Warn("record organic read failed", zap.Error(err), zap.String("page_id", string(pageID)))
+	} else if unique {
+		page.ReadCount++
+	}
 	ctx.JSON(200, page)
+}
+
+func makeOrganicReaderKey(ctx *gin.Context) string {
+	ip := strings.TrimSpace(ctx.ClientIP())
+	ua := strings.TrimSpace(ctx.GetHeader("User-Agent"))
+	if ip == "" && ua == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(ip + "|" + ua))
+	return hex.EncodeToString(sum[:])
 }
 
 func (handler *Handler) getPublicBlock(ctx *gin.Context) {

@@ -21,6 +21,7 @@ type PageRepository interface {
 	ArchivePage(ctx context.Context, pageID domain.PageID) error
 	RestorePage(ctx context.Context, pageID domain.PageID) error
 	ListArchivedPages(ctx context.Context, ownerID string) ([]domain.Page, error)
+	RecordOrganicRead(ctx context.Context, pageID domain.PageID, readerKey string) (bool, error)
 	CreateProofread(ctx context.Context, proofread domain.Proofread) error
 	ListProofreadsByPageID(ctx context.Context, pageID domain.PageID) ([]domain.Proofread, error)
 	GetProofreadByID(ctx context.Context, proofreadID domain.ProofreadID) (domain.Proofread, error)

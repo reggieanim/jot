@@ -37,6 +37,7 @@ type Page struct {
 	Blocks         []Block    `json:"blocks"`
 	ProofreadCount int        `json:"proofread_count"`
 	BlockCount     int        `json:"block_count"`
+	ReadCount      int        `json:"read_count"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty"`

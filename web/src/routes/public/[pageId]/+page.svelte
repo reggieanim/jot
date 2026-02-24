@@ -21,6 +21,7 @@
 	let paletteBase: Rgb = FALLBACK_BASE;
 	let paletteAccent: Rgb = FALLBACK_ACCENT;
 	let themeStyle = DEFAULT_THEME;
+	let readCount = 0;
 
 	let loading = true;
 	let error = '';
@@ -59,6 +60,7 @@
 			title = currentPage.title || 'Untitled';
 			cover = currentPage.cover || null;
 			blocks = currentPage.blocks || [];
+			readCount = currentPage.read_count || 0;
 			darkMode = !!currentPage.dark_mode;
 			cinematicEnabled = currentPage.cinematic !== false;
 			moodStrength = Number(currentPage.mood ?? 65);
@@ -234,6 +236,7 @@
 								{/if}
 							</button>
 							<span class="proofread-count">{Object.values(draftStates).filter((item) => item?.text?.trim()).length} notes</span>
+							<span class="proofread-count">{readCount} reads</span>
 						</div>
 					</div>
 				</div>

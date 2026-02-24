@@ -163,7 +163,8 @@ func (repository *Repository) ListArchivedPages(ctx context.Context, ownerID str
 			p.id, p.title, p.cover, p.published, p.published_at,
 			p.dark_mode, p.cinematic, p.mood, p.bg_color, p.owner_id, p.created_at, p.updated_at, p.deleted_at,
 			(SELECT count(*) FROM proofreads pr WHERE pr.page_id = p.id) AS proofread_count,
-			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count
+			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count,
+			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count
 		FROM pages p
 		WHERE p.deleted_at IS NOT NULL AND p.owner_id = $1
 		ORDER BY p.deleted_at DESC
@@ -176,7 +177,7 @@ func (repository *Repository) ListArchivedPages(ctx context.Context, ownerID str
 	pages := make([]domain.Page, 0)
 	for rows.Next() {
 		var page domain.Page
-		if err := rows.Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ProofreadCount, &page.BlockCount); err != nil {
+		if err := rows.Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ProofreadCount, &page.BlockCount, &page.ReadCount); err != nil {
 			return nil, fmt.Errorf("scan archived page row: %w", err)
 		}
 		pages = append(pages, page)
@@ -193,7 +194,8 @@ func (repository *Repository) ListPublishedPagesByOwner(ctx context.Context, own
 			p.id, p.title, p.cover, p.published, p.published_at,
 			p.dark_mode, p.cinematic, p.mood, p.bg_color, p.owner_id, p.created_at, p.updated_at, p.deleted_at,
 			(SELECT count(*) FROM proofreads pr WHERE pr.page_id = p.id) AS proofread_count,
-			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count
+			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count,
+			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count
 		FROM pages p
 		WHERE p.deleted_at IS NULL AND p.published = true AND p.owner_id = $1
 		ORDER BY p.published_at DESC
@@ -206,7 +208,7 @@ func (repository *Repository) ListPublishedPagesByOwner(ctx context.Context, own
 	pages := make([]domain.Page, 0)
 	for rows.Next() {
 		var page domain.Page
-		if err := rows.Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ProofreadCount, &page.BlockCount); err != nil {
+		if err := rows.Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ProofreadCount, &page.BlockCount, &page.ReadCount); err != nil {
 			return nil, fmt.Errorf("scan published page row: %w", err)
 		}
 		pages = append(pages, page)
@@ -282,6 +284,7 @@ func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offs
 			p.created_at, p.updated_at, p.deleted_at,
 			(SELECT count(*) FROM proofreads pr WHERE pr.page_id = p.id) AS proofread_count,
 			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count,
+			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count,
 			COALESCE(u.username, '') AS author_username,
 			COALESCE(u.display_name, '') AS author_display_name,
 			COALESCE(u.avatar_url, '') AS author_avatar_url
@@ -305,7 +308,7 @@ func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offs
 			&fp.ID, &fp.Title, &fp.Cover, &fp.Published, &fp.PublishedAt,
 			&fp.DarkMode, &fp.Cinematic, &fp.Mood, &fp.BgColor, &fp.OwnerID,
 			&fp.CreatedAt, &fp.UpdatedAt, &fp.DeletedAt,
-			&fp.ProofreadCount, &fp.BlockCount,
+			&fp.ProofreadCount, &fp.BlockCount, &fp.ReadCount,
 			&fp.AuthorUsername, &fp.AuthorDisplayName, &fp.AuthorAvatarURL,
 		); err != nil {
 			return nil, fmt.Errorf("scan feed page row: %w", err)
@@ -400,10 +403,14 @@ func (repository *Repository) UpdateBlocksOptimistic(ctx context.Context, pageID
 func (repository *Repository) GetByID(ctx context.Context, pageID domain.PageID) (domain.Page, error) {
 	var page domain.Page
 	err := repository.pool.QueryRow(ctx, `
-		SELECT id, title, cover, published, published_at, dark_mode, cinematic, mood, bg_color, owner_id, created_at, updated_at, deleted_at
-		FROM pages
-		WHERE id = $1
-	`, string(pageID)).Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt)
+		SELECT
+			p.id, p.title, p.cover, p.published, p.published_at,
+			p.dark_mode, p.cinematic, p.mood, p.bg_color, p.owner_id,
+			p.created_at, p.updated_at, p.deleted_at,
+			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count
+		FROM pages p
+		WHERE p.id = $1
+	`, string(pageID)).Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ReadCount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.Page{}, errs.ErrNotFound
@@ -447,7 +454,8 @@ func (repository *Repository) ListPages(ctx context.Context, ownerID string) ([]
 			p.id, p.title, p.cover, p.published, p.published_at,
 			p.dark_mode, p.cinematic, p.mood, p.bg_color, p.owner_id, p.created_at, p.updated_at, p.deleted_at,
 			(SELECT count(*) FROM proofreads pr WHERE pr.page_id = p.id) AS proofread_count,
-			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count
+			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count,
+			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count
 		FROM pages p
 		WHERE p.deleted_at IS NULL AND p.owner_id = $1
 		ORDER BY p.updated_at DESC
@@ -460,7 +468,7 @@ func (repository *Repository) ListPages(ctx context.Context, ownerID string) ([]
 	pages := make([]domain.Page, 0)
 	for rows.Next() {
 		var page domain.Page
-		if err := rows.Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ProofreadCount, &page.BlockCount); err != nil {
+		if err := rows.Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ProofreadCount, &page.BlockCount, &page.ReadCount); err != nil {
 			return nil, fmt.Errorf("scan page row: %w", err)
 		}
 		pages = append(pages, page)
@@ -569,6 +577,26 @@ func (repository *Repository) GetProofreadByID(ctx context.Context, proofreadID 
 	}
 
 	return proofread, nil
+}
+
+func (repository *Repository) RecordOrganicRead(ctx context.Context, pageID domain.PageID, readerKey string) (bool, error) {
+	if readerKey == "" {
+		return false, nil
+	}
+	var inserted bool
+	err := repository.pool.QueryRow(ctx, `
+		INSERT INTO page_reads (page_id, reader_key, read_count, first_read_at, last_read_at)
+		VALUES ($1, $2, 1, now(), now())
+		ON CONFLICT (page_id, reader_key)
+		DO UPDATE SET
+			read_count = page_reads.read_count + 1,
+			last_read_at = now()
+		RETURNING (xmax = 0) AS inserted
+	`, string(pageID), readerKey).Scan(&inserted)
+	if err != nil {
+		return false, fmt.Errorf("record organic read: %w", err)
+	}
+	return inserted, nil
 }
 
 type rowScanner interface {

@@ -273,6 +273,17 @@ func (service *Service) GetPublicPage(ctx context.Context, pageID domain.PageID)
 	return page, nil
 }
 
+func (service *Service) RecordPublicRead(ctx context.Context, pageID domain.PageID, readerKey string) (bool, error) {
+	if pageID == "" || strings.TrimSpace(readerKey) == "" {
+		return false, nil
+	}
+	unique, err := service.repo.RecordOrganicRead(ctx, pageID, readerKey)
+	if err != nil {
+		return false, fmt.Errorf("record organic read: %w", err)
+	}
+	return unique, nil
+}
+
 func (service *Service) GetPublicBlock(ctx context.Context, pageID domain.PageID, blockID string) (domain.Block, domain.Page, error) {
 	if blockID == "" {
 		return domain.Block{}, domain.Page{}, errs.ErrInvalidInput
