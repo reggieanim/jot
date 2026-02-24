@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -121,6 +122,7 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, 
 	v1.POST("/public/pages/:pageID/proofreads", handler.createProofread)
 	v1.GET("/public/proofreads/:proofreadID", handler.getProofread)
 	v1.GET("/users/:userID/pages", handler.listPublishedPagesByUser)
+	v1.GET("/public/feed", handler.listFeed)
 
 	// SSE + realtime (EventSource can't send cookies/headers)
 	v1.GET("/pages/:pageID/events", handler.subscribePageEvents)
@@ -682,6 +684,28 @@ func (handler *Handler) updatePageMeta(ctx *gin.Context) {
 	}
 
 	ctx.JSON(200, gin.H{"status": "updated", "page": page})
+}
+
+func (handler *Handler) listFeed(ctx *gin.Context) {
+	limit := 20
+	offset := 0
+	if l := ctx.Query("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	if o := ctx.Query("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+	sort := ctx.DefaultQuery("sort", "new")
+	pages, err := handler.service.ListPublishedFeed(ctx.Request.Context(), limit, offset, sort)
+	if err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	ctx.JSON(200, gin.H{"items": pages})
 }
 
 func (handler *Handler) listPublishedPagesByUser(ctx *gin.Context) {

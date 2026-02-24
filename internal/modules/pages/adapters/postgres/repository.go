@@ -256,6 +256,107 @@ func (repository *Repository) ListPublishedPagesByOwner(ctx context.Context, own
 	return pages, nil
 }
 
+func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offset int, sort string) ([]domain.FeedPage, error) {
+	if limit <= 0 {
+		limit = 30
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	var orderClause string
+	switch sort {
+	case "top":
+		orderClause = "ORDER BY (SELECT count(*) FROM proofreads pr WHERE pr.page_id = p.id) DESC, p.published_at DESC"
+	case "hot":
+		// Hot = engagement weighted by recency (logarithmic decay over 48h)
+		orderClause = "ORDER BY ((SELECT count(*) FROM proofreads pr WHERE pr.page_id = p.id) + 1) / POWER(EXTRACT(EPOCH FROM (NOW() - COALESCE(p.published_at, p.created_at))) / 3600 + 2, 1.5) DESC"
+	default: // "new"
+		orderClause = "ORDER BY p.published_at DESC"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			p.id, p.title, p.cover, p.published, p.published_at,
+			p.dark_mode, p.cinematic, p.mood, p.bg_color, p.owner_id,
+			p.created_at, p.updated_at, p.deleted_at,
+			(SELECT count(*) FROM proofreads pr WHERE pr.page_id = p.id) AS proofread_count,
+			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count,
+			COALESCE(u.username, '') AS author_username,
+			COALESCE(u.display_name, '') AS author_display_name,
+			COALESCE(u.avatar_url, '') AS author_avatar_url
+		FROM pages p
+		LEFT JOIN users u ON u.id = p.owner_id
+		WHERE p.deleted_at IS NULL AND p.published = true
+		%s
+		LIMIT $1 OFFSET $2
+	`, orderClause)
+
+	rows, err := repository.pool.Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list published feed: %w", err)
+	}
+	defer rows.Close()
+
+	pages := make([]domain.FeedPage, 0)
+	for rows.Next() {
+		var fp domain.FeedPage
+		if err := rows.Scan(
+			&fp.ID, &fp.Title, &fp.Cover, &fp.Published, &fp.PublishedAt,
+			&fp.DarkMode, &fp.Cinematic, &fp.Mood, &fp.BgColor, &fp.OwnerID,
+			&fp.CreatedAt, &fp.UpdatedAt, &fp.DeletedAt,
+			&fp.ProofreadCount, &fp.BlockCount,
+			&fp.AuthorUsername, &fp.AuthorDisplayName, &fp.AuthorAvatarURL,
+		); err != nil {
+			return nil, fmt.Errorf("scan feed page row: %w", err)
+		}
+		pages = append(pages, fp)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate feed pages rows: %w", err)
+	}
+
+	// Fetch preview blocks
+	if len(pages) > 0 {
+		pageIDs := make([]string, len(pages))
+		pageMap := make(map[string]*domain.FeedPage, len(pages))
+		for i := range pages {
+			pageIDs[i] = string(pages[i].ID)
+			pageMap[string(pages[i].ID)] = &pages[i]
+		}
+
+		blockRows, err := repository.pool.Query(ctx, `
+			SELECT DISTINCT ON (page_id) id, page_id, parent_id, type, position, data
+			FROM blocks
+			WHERE page_id = ANY($1) AND type IN ('image', 'embed', 'gallery')
+			ORDER BY page_id, position
+		`, pageIDs)
+		if err != nil {
+			return nil, fmt.Errorf("query feed preview blocks: %w", err)
+		}
+		defer blockRows.Close()
+
+		for blockRows.Next() {
+			var block domain.Block
+			var blockType string
+			var data []byte
+			if err := blockRows.Scan(&block.ID, &block.PageID, &block.ParentID, &blockType, &block.Position, &data); err != nil {
+				return nil, fmt.Errorf("scan feed preview block: %w", err)
+			}
+			block.Type = domain.BlockType(blockType)
+			block.Data = json.RawMessage(data)
+			if p, ok := pageMap[string(block.PageID)]; ok {
+				p.Blocks = []domain.Block{block}
+			}
+		}
+		if err := blockRows.Err(); err != nil {
+			return nil, fmt.Errorf("iterate feed preview blocks: %w", err)
+		}
+	}
+
+	return pages, nil
+}
+
 func (repository *Repository) UpdateBlocksOptimistic(ctx context.Context, pageID domain.PageID, blocks []domain.Block, expectedUpdatedAt *time.Time) error {
 	tx, err := repository.pool.Begin(ctx)
 	if err != nil {

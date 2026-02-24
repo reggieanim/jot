@@ -143,6 +143,23 @@ func (repo *inMemoryRepo) ListPublishedPagesByOwner(_ context.Context, ownerID s
 	return pages, nil
 }
 
+func (repo *inMemoryRepo) ListPublishedFeed(_ context.Context, limit, offset int, _ string) ([]domain.FeedPage, error) {
+	all := make([]domain.FeedPage, 0)
+	for _, page := range repo.store {
+		if page.DeletedAt == nil && page.Published {
+			all = append(all, domain.FeedPage{Page: page})
+		}
+	}
+	if offset >= len(all) {
+		return []domain.FeedPage{}, nil
+	}
+	end := offset + limit
+	if end > len(all) {
+		end = len(all)
+	}
+	return all[offset:end], nil
+}
+
 type noOpEvents struct{}
 
 func (noOpEvents) PageCreated(_ context.Context, _ domain.Page) error   { return nil }

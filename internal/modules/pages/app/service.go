@@ -243,6 +243,14 @@ func (service *Service) ListPublishedPagesByOwner(ctx context.Context, ownerID s
 	return pages, nil
 }
 
+func (service *Service) ListPublishedFeed(ctx context.Context, limit, offset int, sort string) ([]domain.FeedPage, error) {
+	pages, err := service.repo.ListPublishedFeed(ctx, limit, offset, sort)
+	if err != nil {
+		return nil, fmt.Errorf("list published feed: %w", err)
+	}
+	return pages, nil
+}
+
 func (service *Service) checkOwnership(ctx context.Context, pageID domain.PageID, ownerID string) error {
 	page, err := service.repo.GetByID(ctx, pageID)
 	if err != nil {

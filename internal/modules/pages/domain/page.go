@@ -41,3 +41,11 @@ type Page struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
 }
+
+// FeedPage extends Page with author info for the public feed.
+type FeedPage struct {
+	Page
+	AuthorUsername    string `json:"author_username"`
+	AuthorDisplayName string `json:"author_display_name"`
+	AuthorAvatarURL  string `json:"author_avatar_url"`
+}
