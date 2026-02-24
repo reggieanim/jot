@@ -217,6 +217,7 @@
 	<header class="landing-nav">
 		<a href="/" class="landing-brand">Jot.</a>
 		<nav class="landing-nav-links">
+			<a href="/feed">Feed</a>
 			<a href="/login">Log in</a>
 			<a href="/signup" class="landing-nav-cta">Try it free</a>
 		</nav>
@@ -339,6 +340,7 @@
 		<span class="landing-brand-sm">Jot.</span>
 		<span class="landing-copy">© 2026 Jot. All rights reserved.</span>
 		<nav class="landing-footer-links">
+			<a href="/feed">Feed</a>
 			<a href="/login">Log in</a>
 			<a href="/signup">Sign up</a>
 		</nav>
@@ -353,6 +355,7 @@
 		<a href="/" class="brand">Jot.</a>
 		<nav class="nav-links">
 			<a href="/">Home.</a>
+			<a href="/feed">Feed.</a>
 			<a href="/editor">Editor.</a>
 		</nav>
 

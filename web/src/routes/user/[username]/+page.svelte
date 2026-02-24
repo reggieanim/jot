@@ -260,6 +260,7 @@
 
 			<nav class="sidebar-nav">
 				<a href="/" class="sidebar-nav-link">Home</a>
+				<a href="/feed" class="sidebar-nav-link">Feed</a>
 				<a href="/editor" class="sidebar-nav-link">Editor</a>
 				{#if $authUser}
 					<a href="/editor" class="sidebar-nav-cta">+ New page</a>
