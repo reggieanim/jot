@@ -1032,6 +1032,61 @@
 		background: color-mix(in srgb, var(--note-accent, #7c5cff) 6%, transparent);
 	}
 
+	/* ---- Mobile / responsive ---- */
+	@media (max-width: 680px) {
+		.block {
+			padding: 6px 4px;
+		}
+
+		.heading-1 { font-size: 24px; margin: 8px 0 2px; }
+		.heading-2 { font-size: 20px; margin: 6px 0 2px; }
+		.heading-3 { font-size: 17px; margin: 4px 0 2px; }
+
+		.editable {
+			line-height: 1.5;
+		}
+
+		.gallery-grid {
+			grid-template-columns: repeat(min(var(--gallery-cols, 2), 2), minmax(0, 1fr)) !important;
+		}
+
+		.gallery-image {
+			height: 140px;
+		}
+
+		.code-editor {
+			font-size: 12px;
+			padding: 10px 12px;
+		}
+
+		.embed-frame {
+			height: 260px;
+			border-radius: 8px;
+		}
+
+		.annotation-badge {
+			left: -4px;
+			top: -6px;
+			padding: 2px 5px;
+			font-size: 10px;
+		}
+
+		.popup-card {
+			width: calc(100vw - 48px);
+			max-width: 300px;
+		}
+	}
+
+	@media (max-width: 400px) {
+		.gallery-grid {
+			grid-template-columns: 1fr !important;
+		}
+
+		.heading-1 { font-size: 22px; }
+		.heading-2 { font-size: 18px; }
+		.heading-3 { font-size: 16px; }
+	}
+
 	/* ---- Inline rich-text element styles ---- */
 	.editable :global(code) {
 		background: color-mix(in srgb, var(--note-accent, #7c5cff) 10%, var(--note-surface, #f6f6f7));

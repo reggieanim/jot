@@ -726,4 +726,10 @@
 			position: static;
 		}
 	}
+
+	@media (max-width: 680px) {
+		.editor-wrapper {
+			padding: 0 8px;
+		}
+	}
 </style>

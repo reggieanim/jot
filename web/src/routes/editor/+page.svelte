@@ -1687,4 +1687,22 @@
 			max-height: 40px;
 		}
 	}
+
+	@media (max-width: 680px) {
+		.editor-wrapper {
+			padding: 0 8px;
+		}
+
+		.block-wrapper {
+			gap: 2px;
+		}
+
+		.blocks-container {
+			padding-bottom: 60px;
+		}
+
+		.click-to-add {
+			min-height: 120px;
+		}
+	}
 </style>

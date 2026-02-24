@@ -1817,6 +1817,156 @@
 		box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
 	}
 
+	/* ---- Mobile / responsive ---- */
+	@media (max-width: 680px) {
+		.block {
+			padding: 10px 8px;
+			border-radius: 8px;
+		}
+
+		/* Move handle & delete inside the block on mobile */
+		.block-handle {
+			position: relative;
+			left: 0;
+			top: 0;
+			opacity: 0.5;
+			padding: 6px;
+			margin-right: 4px;
+			flex-shrink: 0;
+		}
+
+		.delete-btn {
+			opacity: 0.5;
+			padding: 6px 8px;
+			flex-shrink: 0;
+		}
+
+		.share-btn {
+			position: relative;
+			right: 0;
+			top: 0;
+			opacity: 0.5;
+			margin-left: 4px;
+		}
+
+		/* Floating toolbar becomes full-width anchored */
+		.rich-toolbar {
+			position: relative;
+			top: auto !important;
+			left: auto !important;
+			transform: none;
+			width: 100%;
+			justify-content: center;
+			margin-bottom: 8px;
+			box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+			overflow-x: auto;
+		}
+
+		@keyframes toolbar-in {
+			from { opacity: 0; transform: translateY(4px); }
+			to   { opacity: 1; transform: translateY(0); }
+		}
+
+		/* Headings scale down */
+		.heading-1 { font-size: 24px; margin: 8px 0 2px; }
+		.heading-2 { font-size: 20px; margin: 6px 0 2px; }
+		.heading-3 { font-size: 17px; margin: 4px 0 2px; }
+
+		/* Gallery collapses to fewer columns */
+		.gallery-grid {
+			grid-template-columns: repeat(min(var(--gallery-cols, 2), 2), minmax(0, 1fr)) !important;
+		}
+
+		.gallery-image {
+			height: 140px;
+		}
+
+		.gallery-toolbar {
+			flex-wrap: wrap;
+			gap: 6px;
+		}
+
+		/* Code/canvas responsive */
+		.code-editor {
+			min-height: 80px;
+			font-size: 12px;
+			padding: 10px 12px;
+		}
+
+		.canvas-toolbar {
+			gap: 6px;
+			padding: 6px 8px;
+		}
+
+		.canvas-dims {
+			order: 10;
+			width: 100%;
+			justify-content: center;
+		}
+
+		.canvas-dim-input {
+			width: 50px;
+		}
+
+		/* Embed responsive */
+		.embed-frame {
+			height: 260px;
+			border-radius: 8px;
+		}
+
+		/* Image placeholder compact */
+		.image-placeholder,
+		.embed-placeholder {
+			padding: 12px;
+			gap: 8px;
+			border-radius: 8px;
+			font-size: 13px;
+		}
+
+		/* Slash menu responsive */
+		.slash-menu {
+			min-width: 240px;
+			max-width: calc(100vw - 32px);
+			border-radius: 10px;
+		}
+
+		.slash-icon {
+			width: 32px;
+			height: 32px;
+			font-size: 15px;
+		}
+
+		.slash-item {
+			padding: 6px 12px;
+			gap: 10px;
+		}
+
+		.slash-label { font-size: 13px; }
+		.slash-desc { font-size: 11px; }
+	}
+
+	@media (max-width: 400px) {
+		.gallery-grid {
+			grid-template-columns: 1fr !important;
+		}
+
+		.heading-1 { font-size: 22px; }
+		.heading-2 { font-size: 18px; }
+		.heading-3 { font-size: 16px; }
+
+		.rich-toolbar {
+			gap: 1px;
+			padding: 3px 4px;
+		}
+
+		.rich-btn {
+			min-width: 24px;
+			height: 26px;
+			padding: 3px 5px;
+			font-size: 12px;
+		}
+	}
+
 	/* ---- Inline rich-text element styles ---- */
 	.editable :global(code) {
 		background: color-mix(in srgb, var(--note-accent, #7c5cff) 10%, var(--note-surface, #f6f6f7));
