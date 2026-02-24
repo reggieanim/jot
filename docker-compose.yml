@@ -112,10 +112,11 @@ services:
       - "8081:8080"
       - "9091:9090"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
-      interval: 5s
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
       timeout: 3s
       retries: 5
+      start_period: 30s
 
   # ── SvelteKit Frontend ──
   web:
@@ -133,10 +134,11 @@ services:
     ports:
       - "3000:3000"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000"]
-      interval: 5s
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000"]
+      interval: 10s
       timeout: 3s
       retries: 5
+      start_period: 30s
 
 volumes:
   pgdata:
