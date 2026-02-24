@@ -38,6 +38,7 @@ type Page struct {
 	ProofreadCount int        `json:"proofread_count"`
 	BlockCount     int        `json:"block_count"`
 	ReadCount      int        `json:"read_count"`
+	HasShareLinks  bool       `json:"has_share_links"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
@@ -49,4 +50,14 @@ type FeedPage struct {
 	AuthorUsername    string `json:"author_username"`
 	AuthorDisplayName string `json:"author_display_name"`
 	AuthorAvatarURL   string `json:"author_avatar_url"`
+}
+
+// CollabUser represents a signed-in user who has accessed a page via share link.
+type CollabUser struct {
+	UserID      string    `json:"user_id"`
+	Username    string    `json:"username"`
+	DisplayName string    `json:"display_name"`
+	AvatarURL   string    `json:"avatar_url"`
+	Access      string    `json:"access"`
+	LastSeenAt  time.Time `json:"last_seen_at"`
 }

@@ -283,6 +283,19 @@ func (service *Service) CreateShareLink(ctx context.Context, ownerID string, pag
 	return share, nil
 }
 
+func (service *Service) RevokeShareLink(ctx context.Context, ownerID string, pageID domain.PageID, access domain.ShareAccess) error {
+	if pageID == "" || ownerID == "" {
+		return errs.ErrInvalidInput
+	}
+	if access != domain.ShareAccessView && access != domain.ShareAccessEdit {
+		return errs.ErrInvalidInput
+	}
+	if err := service.checkOwnership(ctx, pageID, ownerID); err != nil {
+		return err
+	}
+	return service.repo.RevokeShareLinksByAccess(ctx, pageID, ownerID, access)
+}
+
 func (service *Service) ResolvePageAccess(ctx context.Context, actorID string, pageID domain.PageID, shareToken string, required domain.ShareAccess) (domain.Page, string, error) {
 	if pageID == "" {
 		return domain.Page{}, "", errs.ErrInvalidInput
@@ -309,6 +322,10 @@ func (service *Service) ResolvePageAccess(ctx context.Context, actorID string, p
 	}
 	if required == domain.ShareAccessEdit && share.Access != domain.ShareAccessEdit {
 		return domain.Page{}, "", errs.ErrForbidden
+	}
+
+	if actorID != "" {
+		_ = service.repo.UpsertCollabUser(ctx, pageID, actorID, string(share.Access))
 	}
 
 	if share.Access == domain.ShareAccessEdit {
@@ -425,4 +442,25 @@ func (service *Service) GetProofread(ctx context.Context, proofreadID domain.Pro
 		return domain.Proofread{}, domain.Page{}, err
 	}
 	return proofread, page, nil
+}
+
+func (service *Service) ListCollabUsers(ctx context.Context, ownerID string, pageID domain.PageID) ([]domain.CollabUser, error) {
+	if pageID == "" {
+		return nil, errs.ErrInvalidInput
+	}
+	if err := service.checkOwnership(ctx, pageID, ownerID); err != nil {
+		return nil, err
+	}
+	return service.repo.ListCollabUsers(ctx, pageID)
+}
+
+func (service *Service) ListPublicCollabUsers(ctx context.Context, pageID domain.PageID) ([]domain.CollabUser, error) {
+	if pageID == "" {
+		return nil, errs.ErrInvalidInput
+	}
+	// Only expose collaborators for published pages
+	if _, err := service.GetPublicPage(ctx, pageID); err != nil {
+		return nil, err
+	}
+	return service.repo.ListCollabUsers(ctx, pageID)
 }

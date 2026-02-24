@@ -16,7 +16,7 @@
 	let fileInput: HTMLInputElement;
 
 	/* ── TOC: derive entries from heading blocks ── */
-	type TocEntry = { id: string; label: string; type: string; icon: string; index: number };
+	type TocEntry = { id: string; label: string; type: string; icon: string; index: number; depth: number; isLast: boolean };
 
 	$: tocEntries = buildToc(blocks);
 
@@ -31,33 +31,42 @@
 				case 'heading3': {
 					const text = stripHtml(block.data?.text || '');
 					const level = block.type === 'heading' ? 1 : block.type === 'heading2' ? 2 : 3;
-					if (text) entries.push({ id: block.id || `toc-${idx}`, label: text, type: block.type, icon: `H${level}`, index: idx });
+					if (text) entries.push({ id: block.id || `toc-${idx}`, label: text, type: block.type, icon: `H${level}`, index: idx, depth: level - 1, isLast: false });
 					break;
 				}
 				case 'code':
-					entries.push({ id: block.id || `toc-${idx}`, label: block.data?.language || 'Code', type: 'code', icon: '⌘', index: idx });
+					entries.push({ id: block.id || `toc-${idx}`, label: block.data?.language || 'Code', type: 'code', icon: '⌘', index: idx, depth: 0, isLast: false });
 					break;
 				case 'canvas':
-					entries.push({ id: block.id || `toc-${idx}`, label: block.data?.caption || 'Canvas', type: 'canvas', icon: '◆', index: idx });
+					entries.push({ id: block.id || `toc-${idx}`, label: block.data?.caption || 'Canvas', type: 'canvas', icon: '◆', index: idx, depth: 0, isLast: false });
 					break;
 				case 'image':
-					if (block.data?.url) entries.push({ id: block.id || `toc-${idx}`, label: block.data?.caption || 'Image', type: 'image', icon: '▣', index: idx });
+					if (block.data?.url) entries.push({ id: block.id || `toc-${idx}`, label: block.data?.caption || 'Image', type: 'image', icon: '▣', index: idx, depth: 0, isLast: false });
 					break;
 				case 'gallery':
-					entries.push({ id: block.id || `toc-${idx}`, label: `Gallery · ${block.data?.items?.length || 0}`, type: 'gallery', icon: '⊞', index: idx });
+					entries.push({ id: block.id || `toc-${idx}`, label: `Gallery · ${block.data?.items?.length || 0}`, type: 'gallery', icon: '⊞', index: idx, depth: 0, isLast: false });
 					break;
 				case 'embed':
-					if (block.data?.url) entries.push({ id: block.id || `toc-${idx}`, label: block.data?.caption || 'Embed', type: 'embed', icon: '◈', index: idx });
+					if (block.data?.url) entries.push({ id: block.id || `toc-${idx}`, label: block.data?.caption || 'Embed', type: 'embed', icon: '◈', index: idx, depth: 0, isLast: false });
 					break;
 				case 'quote':
 				case 'callout': {
 					const text = stripHtml(block.data?.text || '');
-					if (text) entries.push({ id: block.id || `toc-${idx}`, label: text.slice(0, 40) + (text.length > 40 ? '…' : ''), type: block.type, icon: block.type === 'quote' ? '❝' : '!', index: idx });
+					if (text) entries.push({ id: block.id || `toc-${idx}`, label: text.slice(0, 40) + (text.length > 40 ? '…' : ''), type: block.type, icon: block.type === 'quote' ? '❝' : '!', index: idx, depth: 0, isLast: false });
 					break;
 				}
 				default:
 					break;
 			}
+		}
+		// Mark last sibling at each depth for the tree connector
+		for (let i = 0; i < entries.length; i++) {
+			const depth = entries[i].depth;
+			let isLast = true;
+			for (let j = i + 1; j < entries.length; j++) {
+				if (entries[j].depth <= depth) { isLast = entries[j].depth < depth; break; }
+			}
+			entries[i].isLast = isLast;
 		}
 		return entries;
 	}
@@ -158,14 +167,27 @@
 
 		{#if tocEntries.length > 0}
 			<nav class="toc-nav" aria-label="Table of contents">
-				{#each tocEntries as entry (entry.id)}
+				{#each tocEntries as entry, i (entry.id)}
 					<button
 						class="toc-entry toc-{entry.type}"
+						class:toc-last={entry.isLast}
+						style="--depth:{entry.depth}"
 						on:click={() => scrollToBlock(entry.id)}
 						title={entry.label}
 					>
-						<span class="toc-icon">{entry.icon}</span>
+						<!-- Tree connector lines -->
+						{#if entry.depth > 0}
+							<span class="toc-connector" aria-hidden="true">
+								{#each Array(entry.depth) as _, d}
+									<span class="toc-thread" class:toc-thread-last={d === entry.depth - 1 && entry.isLast}></span>
+								{/each}
+							</span>
+						{:else}
+							<span class="toc-root-spacer" aria-hidden="true"></span>
+						{/if}
+						<span class="toc-dot"></span>
 						<span class="toc-label">{entry.label}</span>
+						<span class="toc-type-badge">{entry.icon}</span>
 					</button>
 				{/each}
 			</nav>
@@ -352,105 +374,221 @@
 		text-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
 	}
 
-	/* ── TOC Navigation ── */
+	/* ── TOC Navigation tree ── */
 
 	.toc-nav {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: 0;
 		flex: 1;
 		overflow-y: auto;
 		scrollbar-width: thin;
-		scrollbar-color: rgba(128, 128, 128, 0.25) transparent;
+		scrollbar-color: rgba(128, 128, 128, 0.2) transparent;
+		padding-left: 0;
+		padding-top: 6px;
 	}
 
 	.toc-entry {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		padding: 7px 10px;
+		gap: 0;
+		padding: 0 4px 0 0;
 		border: none;
-		border-radius: 6px;
 		background: transparent;
 		color: var(--note-text, #374151);
-		font-size: 12.5px;
-		font-weight: 500;
-		line-height: 1.3;
 		cursor: pointer;
-		transition: background 0.12s, color 0.12s, transform 0.1s;
 		text-align: left;
 		width: 100%;
-	}
-
-	.has-cover .toc-entry {
-		color: rgba(255, 255, 255, 0.82);
+		position: relative;
+		min-height: 28px;
+		border-radius: 5px;
+		transition: background 0.12s;
 	}
 
 	.toc-entry:hover {
-		background: var(--note-accent, #7c5cff);
-		color: #ffffff;
-		transform: translateX(2px);
+		background: rgba(0, 0, 0, 0.05);
 	}
 
 	.has-cover .toc-entry:hover {
-		background: rgba(255, 255, 255, 0.18);
-		color: #ffffff;
+		background: rgba(255, 255, 255, 0.1);
 	}
 
-	.toc-icon {
-		flex-shrink: 0;
-		width: 20px;
-		height: 20px;
+	.has-cover .toc-entry {
+		color: rgba(255, 255, 255, 0.8);
+	}
+
+	/* Root-level entry spacer (no connector, but aligns dot with children) */
+	.toc-root-spacer {
 		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 4px;
-		font-size: 11px;
-		font-weight: 700;
-		background: var(--note-border, rgba(0, 0, 0, 0.06));
-		color: var(--note-accent, #7c5cff);
+		width: 8px;
+		flex-shrink: 0;
 	}
 
-	.has-cover .toc-icon {
-		background: rgba(255, 255, 255, 0.12);
-		color: rgba(255, 255, 255, 0.7);
+	/* ── Tree connector wires ── */
+
+	.toc-connector {
+		display: flex;
+		align-self: stretch;
+		flex-shrink: 0;
+		align-items: stretch;
 	}
 
-	.toc-entry:hover .toc-icon {
-		background: rgba(255, 255, 255, 0.2);
-		color: #ffffff;
+	.toc-thread {
+		display: block;
+		width: 16px;
+		flex-shrink: 0;
+		position: relative;
+		align-self: stretch;
 	}
 
-	/* type-specific icon styles */
-	.toc-heading .toc-icon,
-	.toc-heading2 .toc-icon,
-	.toc-heading3 .toc-icon {
-		font-family: 'SF Mono', 'Menlo', monospace;
-		font-size: 10px;
-		font-weight: 800;
+	/* Vertical line running through the full thread cell */
+	.toc-thread::before {
+		content: '';
+		position: absolute;
+		left: 7px;
+		top: 0;
+		bottom: 0;
+		width: 1.5px;
+		background: var(--note-border, rgba(0,0,0,0.12));
+		border-radius: 2px;
 	}
 
-	.toc-heading2 {
-		padding-left: 20px;
+	.has-cover .toc-thread::before {
+		background: rgba(255,255,255,0.18);
 	}
 
-	.toc-heading3 {
-		padding-left: 32px;
+	/* The L-turn elbow on the last thread segment */
+	.toc-thread.toc-thread-last::before {
+		bottom: 50%;
 	}
 
-	.toc-heading .toc-label {
-		font-weight: 600;
+	.toc-thread.toc-thread-last::after {
+		content: '';
+		position: absolute;
+		left: 7px;
+		top: 50%;
+		width: 8px;
+		height: 1.5px;
+		background: var(--note-border, rgba(0,0,0,0.12));
+		border-radius: 2px;
 	}
 
-	.toc-code .toc-icon {
-		font-size: 12px;
+	.has-cover .toc-thread.toc-thread-last::after {
+		background: rgba(255,255,255,0.18);
 	}
+
+	/* Continuing vertical + horizontal T connector (not last) */
+	.toc-thread:not(.toc-thread-last)::after {
+		content: '';
+		position: absolute;
+		left: 7px;
+		top: 50%;
+		width: 8px;
+		height: 1.5px;
+		background: var(--note-border, rgba(0,0,0,0.12));
+		border-radius: 2px;
+	}
+
+	.has-cover .toc-thread:not(.toc-thread-last)::after {
+		background: rgba(255,255,255,0.18);
+	}
+
+	/* ── Dot node ── */
+
+	.toc-dot {
+		width: 6px;
+		height: 6px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: var(--note-border, rgba(0,0,0,0.2));
+		margin-right: 8px;
+		transition: background 0.15s, transform 0.15s;
+	}
+
+	.has-cover .toc-dot {
+		background: rgba(255,255,255,0.3);
+	}
+
+	.toc-heading > .toc-dot {
+		width: 8px;
+		height: 8px;
+		background: var(--note-title, #111827);
+		box-shadow: 0 0 0 2px rgba(0,0,0,0.1);
+	}
+
+	.has-cover .toc-heading > .toc-dot {
+		background: rgba(255,255,255,0.7);
+		box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
+	}
+
+	.toc-entry:hover .toc-dot {
+		background: var(--note-title, #111827);
+		transform: scale(1.3);
+	}
+
+	.has-cover .toc-entry:hover .toc-dot {
+		background: #fff;
+	}
+
+	/* ── Label ── */
 
 	.toc-label {
+		flex: 1;
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		min-width: 0;
+		font-size: 12px;
+		font-weight: 500;
+		line-height: 28px;
+		transition: color 0.12s;
+		padding: 0 4px 0 0;
+	}
+
+	.toc-heading > .toc-label {
+		font-weight: 700;
+		font-size: 12.5px;
+		color: var(--note-title, #111827);
+	}
+
+	.has-cover .toc-heading > .toc-label {
+		color: #fff;
+	}
+
+	.toc-entry:hover .toc-label {
+		color: var(--note-title, #111827);
+	}
+
+	.has-cover .toc-entry:hover .toc-label {
+		color: #fff;
+	}
+
+	/* ── Type badge (icon) ── */
+
+	.toc-type-badge {
+		flex-shrink: 0;
+		font-size: 9px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--note-muted, #9ca3af);
+		opacity: 0.6;
+		padding-right: 4px;
+		line-height: 1;
+		transition: opacity 0.12s, color 0.12s;
+	}
+
+	.has-cover .toc-type-badge {
+		color: rgba(255,255,255,0.4);
+	}
+
+	.toc-entry:hover .toc-type-badge {
+		opacity: 1;
+		color: var(--note-text, #374151);
+	}
+
+	.has-cover .toc-entry:hover .toc-type-badge {
+		color: rgba(255,255,255,0.8);
 	}
 
 	/* ── Empty state ── */

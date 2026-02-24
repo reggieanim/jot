@@ -26,6 +26,9 @@
 	let isFollowing = false;
 	let followLoading = false;
 
+	type ApiCollabUser = { user_id: string; username: string; display_name: string; avatar_url: string; access: string; };
+	let collabUsers: Record<string, ApiCollabUser[]> = {};
+
 	/** Whether this is the logged-in user's own profile */
 	$: isOwnProfile = $authUser?.username === username;
 
@@ -134,6 +137,22 @@
 				if (!p.cinematic) continue;
 				const img = imageFor(p);
 				if (img) extractQuickTint(img, p.id);
+			}
+
+			const sharePages = pages.filter(p => p.has_share_links);
+			if (sharePages.length > 0) {
+				const results = await Promise.allSettled(
+					sharePages.map(p =>
+						fetch(`${apiUrl}/v1/public/pages/${encodeURIComponent(p.id)}/collaborators`)
+							.then(r => r.ok ? r.json() : null)
+							.then(data => ({ id: p.id, users: data?.collaborators ?? [] }))
+					)
+				);
+				const map: Record<string, ApiCollabUser[]> = {};
+				for (const res of results) {
+					if (res.status === 'fulfilled') map[res.value.id] = res.value.users;
+				}
+				collabUsers = map;
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load pages';
@@ -305,6 +324,30 @@
 							</div>
 							{#if p.proofread_count}
 								<span class="card-proofreads">{p.proofread_count} proofread{p.proofread_count === 1 ? '' : 's'}</span>
+							{/if}
+							{#if p.has_share_links}
+								<div class="collab-row">
+									{#if collabUsers[p.id]?.length > 0}
+										<div class="collab-avatars">
+											{#each collabUsers[p.id].slice(0, 4) as cu (cu.user_id)}
+												{#if cu.avatar_url}
+													<a href={`/user/${cu.username}`} class="collab-avatar-link" on:click|stopPropagation><img class="collab-avatar" src={cu.avatar_url} alt={cu.display_name || cu.username} title={cu.display_name || cu.username} /></a>
+												{:else}
+													<a href={`/user/${cu.username}`} class="collab-avatar-link" on:click|stopPropagation><span class="collab-avatar collab-avatar-letter" title={cu.display_name || cu.username}>{(cu.display_name || cu.username || '?').charAt(0).toUpperCase()}</span></a>
+												{/if}
+											{/each}
+											{#if collabUsers[p.id].length > 4}
+												<span class="collab-avatar collab-avatar-more">+{collabUsers[p.id].length - 4}</span>
+											{/if}
+											<span class="collab-avatars-label">{collabUsers[p.id].length} collab{collabUsers[p.id].length === 1 ? '' : 's'}</span>
+										</div>
+									{:else}
+										<span class="collab-pip">
+											<span class="collab-dot"></span>
+											Collab active
+										</span>
+									{/if}
+								</div>
 							{/if}
 							<div class="card-read-more">
 									<span>READ MORE</span>
@@ -843,6 +886,78 @@
 		font-weight: 700;
 		color: #888;
 		letter-spacing: 0.02em;
+	}
+
+	/* ━━ COLLAB STRIP ━━ */
+	.collab-row { margin-top: 4px; }
+
+	.collab-avatars {
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.collab-avatar {
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		border: 2px solid #fafaf8;
+		object-fit: cover;
+		margin-right: -5px;
+		flex-shrink: 0;
+	}
+
+	.collab-avatar-letter,
+	.collab-avatar-more {
+		background: #1a1a1a;
+		color: #fafaf8;
+		font-size: 8px;
+		font-weight: 800;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		user-select: none;
+	}
+
+	.collab-avatars-label {
+		margin-left: 11px;
+		font-size: 9px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.09em;
+		color: #888;
+	}
+
+	.collab-avatar-link {
+		display: contents;
+		text-decoration: none;
+	}
+
+	.collab-pip {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 9px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.09em;
+		color: #1a1a1a;
+		border: 1.5px solid #1a1a1a;
+		padding: 2px 7px 2px 5px;
+		border-radius: 4px;
+	}
+
+	.collab-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: #1a1a1a;
+		flex-shrink: 0;
+		animation: collab-pulse 2.2s ease-in-out infinite;
+	}
+
+	@keyframes collab-pulse {
+		0%, 100% { opacity: 1; transform: scale(1); }
+		50% { opacity: 0.35; transform: scale(0.75); }
 	}
 
 	.card-read-more {

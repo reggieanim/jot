@@ -18,6 +18,7 @@
 	let accessMode: 'owner' | 'edit' | 'view' = 'owner';
 	let shareStatus = '';
 	let shareButtonState: Record<'view' | 'edit', 'idle' | 'loading' | 'copied' | 'error'> = { view: 'idle', edit: 'idle' };
+	let revokeButtonState: Record<'view' | 'edit', 'idle' | 'loading' | 'done' | 'error'> = { view: 'idle', edit: 'idle' };
 	let title = 'Untitled';
 	let titleEl: HTMLDivElement;
 	let cover: string | null = null;
@@ -638,6 +639,27 @@
 		}
 	}
 
+	async function revokeShareLink(access: 'view' | 'edit') {
+		if (!canManage || !pageId) return;
+		revokeButtonState = { ...revokeButtonState, [access]: 'loading' };
+		try {
+			const response = await fetch(`${apiUrl}/v1/pages/${pageId}/share/${access}`, {
+				method: 'DELETE',
+				credentials: 'include'
+			});
+			if (!response.ok) throw new Error('revoke failed');
+			revokeButtonState = { ...revokeButtonState, [access]: 'done' };
+			setTimeout(() => {
+				revokeButtonState = { ...revokeButtonState, [access]: 'idle' };
+			}, 2200);
+		} catch {
+			revokeButtonState = { ...revokeButtonState, [access]: 'error' };
+			setTimeout(() => {
+				revokeButtonState = { ...revokeButtonState, [access]: 'idle' };
+			}, 2000);
+		}
+	}
+
 	function scheduleTocUpdate() {
 		if (tocTimer) clearTimeout(tocTimer);
 		tocTimer = setTimeout(() => {
@@ -1179,6 +1201,50 @@
 								{/if}
 							</button>
 						</div>
+						<div class="share-revoke-row">
+							<button
+								type="button"
+								class="share-revoke-btn"
+								class:done={revokeButtonState.view === 'done'}
+								class:error={revokeButtonState.view === 'error'}
+								on:click={() => revokeShareLink('view')}
+								disabled={revokeButtonState.view === 'loading'}
+								title="Revoke all view links — existing links will stop working"
+							>
+								{#if revokeButtonState.view === 'loading'}
+									…
+								{:else if revokeButtonState.view === 'done'}
+									<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+									Revoked
+								{:else if revokeButtonState.view === 'error'}
+									Failed
+								{:else}
+									<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+									Revoke view
+								{/if}
+							</button>
+							<button
+								type="button"
+								class="share-revoke-btn"
+								class:done={revokeButtonState.edit === 'done'}
+								class:error={revokeButtonState.edit === 'error'}
+								on:click={() => revokeShareLink('edit')}
+								disabled={revokeButtonState.edit === 'loading'}
+								title="Revoke all edit links — existing links will stop working"
+							>
+								{#if revokeButtonState.edit === 'loading'}
+									…
+								{:else if revokeButtonState.edit === 'done'}
+									<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+									Revoked
+								{:else if revokeButtonState.edit === 'error'}
+									Failed
+								{:else}
+									<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+									Revoke edit
+								{/if}
+							</button>
+						</div>
 						<p class="share-card-hint">Links are one-click copy — anyone with the link gets access.</p>
 					</div>
 				{/if}
@@ -1576,21 +1642,22 @@
 	/* ── Share card ── */
 	.share-card {
 		background: var(--note-surface, #fff);
-		border: 1.5px solid var(--note-border, #e5e7eb);
-		border-radius: 12px;
-		padding: 14px 14px 12px;
+		border: 2px solid var(--note-title, #1a1a1a);
+		border-radius: 8px;
+		padding: 14px;
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
+		box-shadow: 4px 4px 0 var(--note-title, #1a1a1a);
 	}
 
 	.share-card-title {
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 11px;
+		font-size: 10px;
 		font-weight: 800;
-		letter-spacing: 0.07em;
+		letter-spacing: 0.1em;
 		text-transform: uppercase;
 		color: var(--note-muted, #6b7280);
 	}
@@ -1606,47 +1673,49 @@
 		align-items: center;
 		justify-content: center;
 		gap: 6px;
-		padding: 9px 10px;
-		border-radius: 8px;
+		padding: 8px 10px;
+		border-radius: 6px;
 		font-size: 12px;
-		font-weight: 700;
-		letter-spacing: 0.03em;
-		border: 1.5px solid transparent;
+		font-weight: 800;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		border: 2px solid var(--note-title, #1a1a1a);
 		cursor: pointer;
-		transition: transform 0.12s, box-shadow 0.12s, background 0.15s, color 0.15s, border-color 0.15s;
+		transition: transform 0.1s, box-shadow 0.1s;
 		white-space: nowrap;
 	}
 
 	.share-link-btn:hover:not(:disabled) {
-		transform: translateY(-1px);
-		box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+		transform: translateY(-2px);
+		box-shadow: 3px 3px 0 var(--note-title, #1a1a1a);
 	}
 
 	.share-link-btn:active:not(:disabled) {
 		transform: translateY(0);
+		box-shadow: none;
 	}
 
 	.share-link-btn:disabled {
-		opacity: 0.65;
+		opacity: 0.5;
 		cursor: not-allowed;
 	}
 
 	.share-view {
-		background: #f0f4ff;
-		color: #3b5bdb;
-		border-color: #c5d0ff;
+		background: var(--note-surface, #fff);
+		color: var(--note-title, #1a1a1a);
 	}
 
 	.share-view.copied {
-		background: #ecfdf5;
-		color: #166534;
-		border-color: #6ee7b7;
+		background: var(--note-title, #1a1a1a);
+		color: var(--note-surface, #fff);
+		border-color: var(--note-title, #1a1a1a);
 	}
 
 	.share-view.error {
-		background: #fff1f2;
-		color: #be123c;
-		border-color: #fecdd3;
+		background: var(--note-surface, #fff);
+		color: var(--note-title, #1a1a1a);
+		border-color: var(--note-title, #1a1a1a);
+		opacity: 0.5;
 	}
 
 	.share-edit {
@@ -1655,23 +1724,72 @@
 		border-color: var(--note-title, #1a1a1a);
 	}
 
+	.share-edit:hover:not(:disabled) {
+		box-shadow: 3px 3px 0 color-mix(in srgb, var(--note-title, #1a1a1a) 50%, transparent);
+	}
+
 	.share-edit.copied {
-		background: #ecfdf5;
-		color: #166534;
-		border-color: #6ee7b7;
+		opacity: 0.7;
 	}
 
 	.share-edit.error {
-		background: #fff1f2;
-		color: #be123c;
-		border-color: #fecdd3;
+		opacity: 0.5;
 	}
 
 	.share-card-hint {
 		margin: 0;
 		font-size: 11px;
+		font-weight: 500;
 		color: var(--note-muted, #9ca3af);
 		line-height: 1.4;
+	}
+
+	.share-revoke-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 8px;
+		padding-top: 2px;
+		border-top: 1.5px dashed var(--note-border, #e5e7eb);
+	}
+
+	.share-revoke-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 5px;
+		padding: 6px 8px;
+		border-radius: 6px;
+		border: 2px solid var(--note-title, #1a1a1a);
+		background: var(--note-surface, #fff);
+		color: var(--note-title, #1a1a1a);
+		font-size: 11px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		cursor: pointer;
+		transition: transform 0.1s, box-shadow 0.1s, opacity 0.1s;
+		opacity: 0.45;
+	}
+
+	.share-revoke-btn:hover:not(:disabled) {
+		opacity: 1;
+		transform: translateY(-1px);
+		box-shadow: 2px 2px 0 var(--note-title, #1a1a1a);
+	}
+
+	.share-revoke-btn:disabled {
+		opacity: 0.3;
+		cursor: not-allowed;
+	}
+
+	.share-revoke-btn.done {
+		opacity: 1;
+		background: var(--note-title, #1a1a1a);
+		color: var(--note-surface, #fff);
+	}
+
+	.share-revoke-btn.error {
+		opacity: 0.6;
 	}
 
 	/* ── Readonly badge ── */
@@ -1679,13 +1797,16 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 12px;
-		font-weight: 600;
-		color: #92400e;
-		background: #fffbeb;
-		border: 1.5px solid #fcd34d;
-		padding: 7px 11px;
-		border-radius: 8px;
+		font-size: 11px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--note-title, #1a1a1a);
+		background: var(--note-surface, #fff);
+		border: 2px solid var(--note-title, #1a1a1a);
+		padding: 6px 11px;
+		border-radius: 6px;
+		opacity: 0.7;
 	}
 
 	.users-on-page {

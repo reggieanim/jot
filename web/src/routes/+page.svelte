@@ -15,6 +15,16 @@
 	let showArchived = false;
 	let confirmDeleteId: string | null = null;
 
+	type ApiCollabUser = {
+		user_id: string;
+		username: string;
+		display_name: string;
+		avatar_url: string;
+		access: string;
+		last_seen_at: string;
+	};
+	let collabUsers: Record<string, ApiCollabUser[]> = {};
+
 	/** Per-card cinematic tint extracted from cover image */
 	let cardTints: Record<string, { bg: string; border: string; shadow: string; muted: string }> = {};
 
@@ -113,6 +123,23 @@
 				if (!page.cinematic) continue;
 				const img = imageFor(page);
 				if (img) extractQuickTint(img, page.id);
+			}
+
+			/* fetch collaborators for published pages that have share links */
+			const sharePages = pages.filter(p => p.published && p.has_share_links);
+			if (sharePages.length > 0) {
+				const collabResults = await Promise.allSettled(
+					sharePages.map(p =>
+						fetch(`${apiUrl}/v1/pages/${encodeURIComponent(p.id)}/collaborators`, { credentials: 'include' })
+							.then(r => r.ok ? r.json() : null)
+							.then(data => ({ id: p.id, users: data?.collaborators ?? [] }))
+					)
+				);
+				const map: Record<string, ApiCollabUser[]> = {};
+				for (const res of collabResults) {
+					if (res.status === 'fulfilled') map[res.value.id] = res.value.users;
+				}
+				collabUsers = map;
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load pages';
@@ -350,36 +377,46 @@
 
 {:else}
 <div class="dashboard">
-	<!-- NAV -->
-	<header class="nav">
-		<a href="/" class="brand">Jot.</a>
-		<nav class="nav-links">
-			<a href="/">Home.</a>
-			<a href="/feed">Feed.</a>
-			<a href="/editor">Editor.</a>
-		</nav>
-
-		<form class="open-form" on:submit={openPageById}>
-			<input type="text" placeholder="Paste page ID…" bind:value={pageIdInput} />
-			<button type="submit">→</button>
-		</form>
-
-		<div class="nav-right">
-			{#if $user}
-				<a class="nav-user" href="/user/{$user.username}">{$user.display_name || $user.username}</a>
-				<a class="nav-settings" href="/settings">⚙</a>
-				<button class="nav-logout" on:click={() => { logout(); goto('/login'); }}>Log out</button>
-			{:else if !$authLoading}
-				<a class="nav-cta" href="/login">Log in</a>
-			{/if}
-			<a class="nav-cta" href="/editor">+ New page</a>
+	<!-- SIDE RAIL -->
+	<aside class="cover-rail">
+		<div class="cover-bg">
+			<div class="cover-grain"></div>
+			<div class="cover-gradient"></div>
 		</div>
-	</header>
 
-	<!-- HERO -->
-	<section class="hero">
-		<h1>Your Pages</h1>
-	</section>
+		<a href="/" class="cover-brand">Jot.</a>
+
+		<div class="cover-content">
+			<h1 class="cover-title">Your<br/>Pages.</h1>
+			<p class="cover-sub">All your writing, in one place.</p>
+
+			<nav class="cover-nav-links">
+				<a href="/" class="cover-link">Home</a>
+				<a href="/feed" class="cover-link">Feed</a>
+				<a href="/editor" class="cover-link">Editor</a>
+				{#if $user}
+					<a href="/user/{$user.username}" class="cover-link">{$user.display_name || $user.username}</a>
+					<a href="/settings" class="cover-link">Settings</a>
+				{/if}
+			</nav>
+
+			<form class="open-form" on:submit={openPageById}>
+				<input type="text" placeholder="Paste page ID…" bind:value={pageIdInput} />
+				<button type="submit">→</button>
+			</form>
+		</div>
+
+		<div class="cover-foot">
+			<a href="/editor" class="cover-cta">+ New page</a>
+			{#if $user}
+				<button class="cover-logout" on:click={() => { logout(); goto('/login'); }}>Log out</button>
+			{/if}
+			<span class="cover-footer-copy">© 2026 Jot.</span>
+		</div>
+	</aside>
+
+	<!-- MAIN CONTENT -->
+	<main class="dash-main">
 
 	{#if loading}
 		<div class="status">
@@ -402,7 +439,7 @@
 					{#each published as page, idx (page.id)}
 						{@const img = imageFor(page)}
 						{@const emb = embedFor(page)}
-						<a class="card" href={`/public/${page.id}`} class:tall={idx % 3 === 0} class:dark={page.dark_mode} class:cinematic={page.cinematic} class:has-user-bg={!!page.bg_color} style={cinematicStyle(page)}>
+						<a class="card" href={`/public/${page.id}`} class:tall={idx % 5 === 0} class:wide={idx % 7 === 2} class:dark={page.dark_mode} class:cinematic={page.cinematic} class:has-user-bg={!!page.bg_color} class:collab={page.has_share_links} style={cinematicStyle(page)}>
 							<div class="card-visual" style={!img && !emb ? `background:${patternFor(page)}` : ''}>
 								{#if img}
 									<img src={img} alt={page.title || 'Page image'} />
@@ -411,25 +448,65 @@
 								{:else}
 									<div class="card-default-icon">✦</div>
 								{/if}
+								{#if page.has_share_links}
+									<div class="collab-stripe" aria-hidden="true"></div>
+								{/if}
 							</div>
 							<div class="card-body">
-								<div class="card-top-row">
-									<span class="card-tag">Published</span>
-									<button type="button" class="card-edit" on:click|preventDefault|stopPropagation={() => goto(`/editor/${page.id}`)}>✎ Edit</button>
-								</div>
+								<span class="card-tag">{page.title ? page.title.split(' ').slice(0, 3).join(' ').toUpperCase() : 'UNTITLED'}</span>
 								<h3 class="card-title">{page.title || 'Untitled'}</h3>
-								<div class="card-stats">
-									<span><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg> {page.block_count ?? 0} notes</span>
-									<span><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4l10-10-4-4L4 16v4z" /><path d="M12 6l4 4" /></svg> {page.proofread_count ?? 0} proofreads</span>
+								<div class="card-meta">
+									<div class="card-author">
+										{#if $user?.avatar_url}
+											<img class="card-author-avatar" src={$user.avatar_url} alt={$user.display_name || $user.username} />
+										{:else}
+											<span class="card-author-letter">{($user?.username || '?').charAt(0).toUpperCase()}</span>
+										{/if}
+										<span class="card-author-name">{$user?.display_name || $user?.username}</span>
+									</div>
+									<span class="card-date">{formatDate(page.published_at || page.updated_at)}</span>
 								</div>
-								<div class="card-meta"><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg> {formatDate(page.published_at || page.updated_at)}</div>
-								<div class="card-actions">
-									<button type="button" class="card-action archive-action" on:click|preventDefault|stopPropagation={() => archivePage(page.id)} title="Archive">
-										<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
-									</button>
-									<button type="button" class="card-action delete-action" on:click|preventDefault|stopPropagation={() => { confirmDeleteId = page.id; }} title="Delete">
-										<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-									</button>
+								{#if page.has_share_links}
+									<div class="collab-row">
+										{#if collabUsers[page.id]?.length > 0}
+											<div class="collab-avatars">
+												{#each collabUsers[page.id].slice(0, 4) as cu (cu.user_id)}
+													{#if cu.avatar_url}
+														<a href={`/user/${cu.username}`} class="collab-avatar-link" on:click|stopPropagation><img class="collab-avatar" src={cu.avatar_url} alt={cu.display_name || cu.username} title={cu.display_name || cu.username} /></a>
+													{:else}
+														<a href={`/user/${cu.username}`} class="collab-avatar-link" on:click|stopPropagation><span class="collab-avatar collab-avatar-letter" title={cu.display_name || cu.username}>{(cu.display_name || cu.username || '?').charAt(0).toUpperCase()}</span></a>
+													{/if}
+												{/each}
+												{#if collabUsers[page.id].length > 4}
+													<span class="collab-avatar collab-avatar-more">+{collabUsers[page.id].length - 4}</span>
+												{/if}
+												<span class="collab-avatars-label">{collabUsers[page.id].length} collab{collabUsers[page.id].length === 1 ? '' : 's'}</span>
+											</div>
+										{:else}
+											<span class="collab-pip" title="Live collaboration active">
+												<span class="collab-dot"></span>
+												Collab active
+											</span>
+										{/if}
+									</div>
+								{/if}
+								{#if page.proofread_count}
+									<span class="card-proofreads">{page.proofread_count} proofread{page.proofread_count === 1 ? '' : 's'}</span>
+								{/if}
+								<div class="card-footer-row">
+									<div class="card-read-more">
+										<span>VIEW PAGE</span>
+										<span class="card-arrow">→</span>
+									</div>
+									<div class="card-actions">
+										<button type="button" class="card-action card-edit-btn" on:click|preventDefault|stopPropagation={() => goto(`/editor/${page.id}`)} title="Edit">✎</button>
+										<button type="button" class="card-action archive-action" on:click|preventDefault|stopPropagation={() => archivePage(page.id)} title="Archive">
+											<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+										</button>
+										<button type="button" class="card-action delete-action" on:click|preventDefault|stopPropagation={() => { confirmDeleteId = page.id; }} title="Delete">
+											<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+										</button>
+									</div>
 								</div>
 							</div>
 						</a>
@@ -456,23 +533,32 @@
 								{/if}
 							</div>
 							<div class="card-body">
-								<div class="card-top-row">
-									<span class="card-tag draft-tag">Draft</span>
-									<button type="button" class="card-edit" on:click|preventDefault|stopPropagation={() => goto(`/editor/${page.id}`)}>✎ Edit</button>
-								</div>
+								<span class="card-tag draft-tag">{page.title ? page.title.split(' ').slice(0, 3).join(' ').toUpperCase() : 'DRAFT'}</span>
 								<h3 class="card-title">{page.title || 'Untitled'}</h3>
-								<div class="card-stats">
-									<span><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg> {page.block_count ?? 0} notes</span>
-									<span><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4l10-10-4-4L4 16v4z" /><path d="M12 6l4 4" /></svg> {page.proofread_count ?? 0} proofreads</span>
+								<div class="card-meta">
+									<div class="card-author">
+										{#if $user?.avatar_url}
+											<img class="card-author-avatar" src={$user.avatar_url} alt={$user.display_name || $user.username} />
+										{:else}
+											<span class="card-author-letter">{($user?.username || '?').charAt(0).toUpperCase()}</span>
+										{/if}
+										<span class="card-author-name">{$user?.display_name || $user?.username}</span>
+									</div>
+									<span class="card-date">{formatDate(page.updated_at)}</span>
 								</div>
-								<div class="card-meta"><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg> {formatDate(page.updated_at)}</div>
-								<div class="card-actions">
-									<button type="button" class="card-action archive-action" on:click|preventDefault|stopPropagation={() => archivePage(page.id)} title="Archive">
-										<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
-									</button>
-									<button type="button" class="card-action delete-action" on:click|preventDefault|stopPropagation={() => { confirmDeleteId = page.id; }} title="Delete">
-										<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-									</button>
+								<div class="card-footer-row">
+									<div class="card-read-more">
+										<span>EDIT DRAFT</span>
+										<span class="card-arrow">→</span>
+									</div>
+									<div class="card-actions">
+										<button type="button" class="card-action archive-action" on:click|preventDefault|stopPropagation={() => archivePage(page.id)} title="Archive">
+											<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+										</button>
+										<button type="button" class="card-action delete-action" on:click|preventDefault|stopPropagation={() => { confirmDeleteId = page.id; }} title="Delete">
+											<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+										</button>
+									</div>
 								</div>
 							</div>
 						</a>
@@ -496,20 +582,18 @@
 									<div class="card-default-icon">📦</div>
 								</div>
 								<div class="card-body">
-									<div class="card-top-row">
-										<span class="card-tag archived-tag">Archived</span>
-									</div>
+									<span class="card-tag archived-tag">ARCHIVED</span>
 									<h3 class="card-title">{page.title || 'Untitled'}</h3>
-									<div class="card-meta"><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg> {formatDate(page.deleted_at || page.updated_at)}</div>
-									<div class="card-actions">
-										<button type="button" class="card-action restore-action" on:click|stopPropagation={() => restorePage(page.id)} title="Restore">
-											<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
-											Restore
-										</button>
-										<button type="button" class="card-action delete-action" on:click|stopPropagation={() => { confirmDeleteId = page.id; }} title="Delete permanently">
-											<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-											Delete
-										</button>
+									<div class="card-footer-row" style="margin-top:8px;padding-top:8px;border-top:1px solid #e0dfdc;">
+										<span class="card-date" style="font-size:10px;color:#999;">{formatDate(page.deleted_at || page.updated_at)}</span>
+										<div class="card-actions" style="opacity:1;">
+											<button type="button" class="card-action restore-action" on:click|stopPropagation={() => restorePage(page.id)} title="Restore">
+												<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+											</button>
+											<button type="button" class="card-action delete-action" on:click|stopPropagation={() => { confirmDeleteId = page.id; }} title="Delete permanently">
+												<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+											</button>
+										</div>
 									</div>
 								</div>
 							</div>
@@ -533,6 +617,7 @@
 			</div>
 		</div>
 	{/if}
+	</main>
 </div>
 {/if}
 
@@ -544,168 +629,305 @@
 	}
 
 	.dashboard {
-		max-width: 1200px;
-		margin: 0 auto;
-		padding: 0 28px 80px;
+		display: grid;
+		grid-template-columns: 72px 1fr;
+		min-height: 100vh;
+		transition: grid-template-columns 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 	}
 
-	/* ---- NAV ---- */
-	.nav {
+	.dashboard:has(.cover-rail:hover) {
+		grid-template-columns: 340px 1fr;
+	}
+
+	/* ━━ COVER RAIL ━━ */
+	.cover-rail {
+		position: sticky;
+		top: 0;
+		height: 100vh;
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 24px 0;
-		border-bottom: 2px solid #1a1a1a;
-	}
-
-	.brand {
-		font-size: 24px;
-		font-weight: 800;
-		color: #1a1a1a;
-		text-decoration: none;
-		letter-spacing: -0.04em;
-	}
-
-	.nav-links {
-		display: flex;
-		gap: 28px;
-	}
-
-	.nav-links a {
-		font-size: 15px;
-		font-weight: 500;
-		color: #1a1a1a;
-		text-decoration: none;
-		transition: opacity 0.15s;
-	}
-
-	.nav-links a:hover {
-		opacity: 0.5;
-	}
-
-	.nav-cta {
-		font-size: 14px;
-		font-weight: 600;
+		flex-direction: column;
+		background: #0e0e0e;
 		color: #fff;
-		background: #1a1a1a;
-		padding: 8px 18px;
-		border: 2px solid #1a1a1a;
-		border-radius: 6px;
+		overflow: hidden;
+		border-right: 3px solid #1a1a1a;
+		min-width: 0;
+		transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+		z-index: 10;
+	}
+
+	.cover-rail:hover {
+		overflow-y: auto;
+	}
+
+	/* ━━ COVER BACKGROUND ━━ */
+	.cover-bg {
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+	}
+
+	.cover-grain {
+		position: absolute;
+		inset: 0;
+		opacity: 0.35;
+		background-image:
+			radial-gradient(circle at 20% 30%, rgba(255,255,255,0.12) 0.55px, transparent 0.8px),
+			radial-gradient(circle at 80% 20%, rgba(255,255,255,0.08) 0.6px, transparent 0.95px),
+			radial-gradient(circle at 35% 70%, rgba(255,255,255,0.06) 0.5px, transparent 0.9px);
+		background-size: 3px 3px, 4px 4px, 5px 5px;
+		mix-blend-mode: overlay;
+		animation: grainShift 12s ease-in-out infinite alternate;
+	}
+
+	@keyframes grainShift {
+		0% { transform: translate(0, 0); }
+		100% { transform: translate(1px, 1px); }
+	}
+
+	.cover-gradient {
+		position: absolute;
+		inset: 0;
+		background:
+			radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.04) 0%, transparent 60%),
+			linear-gradient(180deg, rgba(14,14,14,0) 0%, rgba(14,14,14,0.6) 100%);
+		pointer-events: none;
+	}
+
+	/* ━━ COVER BRAND ━━ */
+	.cover-brand {
+		position: relative;
+		z-index: 2;
+		display: block;
+		padding: 20px 14px;
+		font-size: 1.4rem;
+		font-weight: 900;
+		color: #fff;
 		text-decoration: none;
-		box-shadow: 3px 3px 0 #1a1a1a;
-		transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
-	}
-
-	.nav-cta:hover {
-		background: #333;
-		transform: translateY(-1px);
-		box-shadow: 4px 4px 0 #1a1a1a;
-	}
-
-	.nav-right {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-	}
-	.nav-user {
-		font-size: 14px;
-		font-weight: 600;
-		color: #1a1a1a;
-		text-decoration: none;
-	}
-	.nav-user:hover {
-		text-decoration: underline;
-	}
-	.nav-settings {
-		font-size: 16px;
-		text-decoration: none;
-		color: #1a1a1a;
-		opacity: 0.5;
-		transition: opacity 0.15s;
-	}
-	.nav-settings:hover {
-		opacity: 1;
-	}
-	.nav-logout {
-		font-family: inherit;
-		font-size: 13px;
-		font-weight: 600;
-		color: #1a1a1a;
-		background: none;
-		border: 2px solid #1a1a1a;
-		padding: 5px 12px;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: background 0.15s, color 0.15s;
-	}
-	.nav-logout:hover {
-		background: #1a1a1a;
-		color: #faf9f7;
-	}
-
-	/* ---- HERO ---- */
-	.hero {
-		padding: 52px 0 36px;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		flex-wrap: wrap;
-		gap: 20px;
-	}
-
-	.hero h1 {
-		font-size: clamp(32px, 5vw, 52px);
-		font-weight: 800;
 		letter-spacing: -0.04em;
-		margin: 0;
-		text-transform: uppercase;
+		opacity: 0.6;
+		transition: opacity 0.25s, padding 0.35s;
+		flex-shrink: 0;
 	}
 
+	.cover-rail:hover .cover-brand {
+		opacity: 0.9;
+		padding: 24px 28px;
+	}
+
+	.cover-brand:hover {
+		opacity: 1 !important;
+	}
+
+	/* ━━ COVER CONTENT ━━ */
+	.cover-content {
+		position: relative;
+		z-index: 2;
+		padding: 0 14px;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		transition: padding 0.35s;
+		overflow: hidden;
+	}
+
+	.cover-rail:hover .cover-content {
+		padding: 0 28px;
+	}
+
+	.cover-title {
+		font-size: 28px;
+		font-weight: 900;
+		letter-spacing: -0.04em;
+		line-height: 0.95;
+		margin: 0;
+		color: #fff;
+		transition: font-size 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+	}
+
+	.cover-rail:hover .cover-title {
+		font-size: clamp(2.5rem, 5vw, 4rem);
+	}
+
+	.cover-sub {
+		font-size: 13px;
+		color: #666;
+		margin: 12px 0 0;
+		line-height: 1.5;
+		opacity: 0;
+		max-height: 0;
+		overflow: hidden;
+		transition: opacity 0.3s 0.05s, max-height 0.35s;
+	}
+
+	.cover-rail:hover .cover-sub {
+		opacity: 1;
+		max-height: 60px;
+	}
+
+	/* ━━ COVER NAV LINKS ━━ */
+	.cover-nav-links {
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+		margin-top: 32px;
+		border-top: 1px solid #2a2a2a;
+		padding-top: 20px;
+		opacity: 0;
+		max-height: 0;
+		overflow: hidden;
+		transition: opacity 0.3s 0.05s, max-height 0.4s;
+	}
+
+	.cover-rail:hover .cover-nav-links {
+		opacity: 1;
+		max-height: 300px;
+	}
+
+	.cover-link {
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: #666;
+		text-decoration: none;
+		padding: 10px 0;
+		transition: color 0.15s, padding-left 0.15s;
+		border: none;
+	}
+
+	.cover-link:hover {
+		color: #fff;
+		padding-left: 4px;
+	}
+
+	/* ━━ OPEN FORM (page ID) ━━ */
 	.open-form {
 		display: flex;
 		gap: 0;
-		align-items: center;
+		margin-top: 20px;
+		opacity: 0;
+		max-height: 0;
+		overflow: hidden;
+		transition: opacity 0.3s 0.05s, max-height 0.35s;
+	}
+
+	.cover-rail:hover .open-form {
+		opacity: 1;
+		max-height: 48px;
 	}
 
 	.open-form input {
-		padding: 6px 12px;
-		border: 2px solid #1a1a1a;
+		flex: 1;
+		padding: 7px 10px;
+		border: 1.5px solid #333;
 		border-right: none;
-		border-radius: 6px 0 0 6px;
-		background: #fff;
-		font-size: 12px;
+		background: #1a1a1a;
+		color: #fff;
+		font-size: 11px;
 		font-family: inherit;
 		outline: none;
-		width: 140px;
-		transition: width 0.2s, box-shadow 0.15s;
-	}
-
-	.open-form input:focus {
-		width: 200px;
-		box-shadow: 3px 3px 0 #1a1a1a;
+		transition: border-color 0.15s;
 	}
 
 	.open-form input::placeholder {
-		color: #aaa;
-		font-size: 11px;
+		color: #555;
+	}
+
+	.open-form input:focus {
+		border-color: #555;
 	}
 
 	.open-form button {
-		padding: 6px 10px;
-		border: 2px solid #1a1a1a;
-		border-radius: 0 6px 6px 0;
-		background: #1a1a1a;
-		color: #fff;
+		padding: 7px 12px;
+		border: 1.5px solid #333;
+		background: #fff;
+		color: #0e0e0e;
 		font-size: 13px;
 		font-weight: 700;
 		cursor: pointer;
-		white-space: nowrap;
 		transition: background 0.15s;
 		line-height: 1;
 	}
 
 	.open-form button:hover {
-		background: #333;
+		background: #e0e0e0;
+	}
+
+	/* ━━ COVER FOOT ━━ */
+	.cover-foot {
+		position: relative;
+		z-index: 2;
+		padding: 20px 28px 24px;
+		border-top: 1px solid #2a2a2a;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		opacity: 0;
+		max-height: 0;
+		overflow: hidden;
+		transition: opacity 0.25s, max-height 0.35s;
+	}
+
+	.cover-rail:hover .cover-foot {
+		opacity: 1;
+		max-height: 200px;
+	}
+
+	.cover-cta {
+		padding: 8px 0;
+		font-family: inherit;
+		font-size: 12px;
+		font-weight: 700;
+		color: #0e0e0e;
+		background: #fff;
+		text-align: center;
+		text-decoration: none;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		transition: background 0.15s;
+	}
+
+	.cover-cta:hover {
+		background: #e0e0e0;
+	}
+
+	.cover-logout {
+		font-family: inherit;
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: #666;
+		background: none;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+		text-align: left;
+		transition: color 0.15s;
+	}
+
+	.cover-logout:hover {
+		color: #fff;
+	}
+
+	.cover-footer-copy {
+		font-size: 11px;
+		color: #444;
+		font-weight: 500;
+	}
+
+	/* ━━ MAIN CONTENT ━━ */
+	.dash-main {
+		padding: 40px 36px 80px;
+		min-height: 100vh;
+		max-width: 1200px;
+		animation: contentFadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+	}
+
+	@keyframes contentFadeIn {
+		from { opacity: 0; transform: translateY(12px); }
+		to { opacity: 1; transform: translateY(0); }
 	}
 
 	/* ---- STATUS ---- */
@@ -781,27 +1003,29 @@
 
 	/* ---- MASONRY ---- */
 	.masonry {
-		columns: 3;
-		column-gap: 12px;
+		columns: 4;
+		column-gap: 16px;
 	}
 
 	/* ---- CARD ---- */
 	.card {
-		display: inline-block;
+		display: inline-flex;
+		flex-direction: column;
 		width: 100%;
-		margin-bottom: 12px;
+		margin-bottom: 16px;
 		background: #fff;
 		border: 2px solid #1a1a1a;
 		border-radius: 8px;
 		overflow: hidden;
 		text-decoration: none;
 		color: inherit;
-		transition: transform 0.12s ease, box-shadow 0.12s ease;
+		transition: transform 0.14s ease, box-shadow 0.14s ease;
 		break-inside: avoid;
+		position: relative;
 	}
 
 	.card:hover {
-		transform: translateY(-3px);
+		transform: translateY(-4px);
 		box-shadow: 6px 6px 0 #1a1a1a;
 	}
 
@@ -809,10 +1033,109 @@
 		border-style: dashed;
 	}
 
+	/* ── Collab card ── */
+	.card.collab {
+	}
+
+	/* Diagonal hatch stripe overlaid on the visual */
+	.collab-stripe {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		background: repeating-linear-gradient(
+			-55deg,
+			transparent,
+			transparent 7px,
+			rgba(0,0,0,0.04) 7px,
+			rgba(0,0,0,0.04) 9px
+		);
+	}
+
+	/* Collab row below author strip */
+	.collab-row {
+		margin-top: 2px;
+	}
+
+	.collab-pip {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 9px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.09em;
+		color: #1a1a1a;
+		border: 1.5px solid #1a1a1a;
+		padding: 2px 7px 2px 5px;
+		border-radius: 4px;
+	}
+
+	.collab-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: #1a1a1a;
+		flex-shrink: 0;
+		animation: collab-pulse 2.2s ease-in-out infinite;
+	}
+
+	@keyframes collab-pulse {
+		0%, 100% { opacity: 1; transform: scale(1); }
+		50% { opacity: 0.35; transform: scale(0.75); }
+	}
+
+	/* Collab avatar strip */
+	.collab-avatars {
+		display: flex;
+		align-items: center;
+		gap: 0;
+	}
+
+	.collab-avatar {
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		border: 2px solid #fafaf8;
+		object-fit: cover;
+		margin-right: -6px;
+		flex-shrink: 0;
+	}
+
+	.collab-avatar-letter,
+	.collab-avatar-more {
+		background: #1a1a1a;
+		color: #fafaf8;
+		font-size: 9px;
+		font-weight: 800;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		user-select: none;
+	}
+
+	.collab-avatar-more {
+		font-size: 8px;
+		letter-spacing: -0.03em;
+	}
+
+	.collab-avatars-label {
+		margin-left: 12px;
+		font-size: 9px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.09em;
+		color: #1a1a1a;
+	}
+
+	.collab-avatar-link {
+		display: contents;
+		text-decoration: none;
+	}
+
 	/* ---- CARD VISUAL ---- */
 	.card-visual {
 		width: 100%;
-		min-height: 160px;
+		min-height: 140px;
 		background: #e8e8e4;
 		overflow: hidden;
 		display: flex;
@@ -822,7 +1145,11 @@
 	}
 
 	.card.tall .card-visual {
-		min-height: 260px;
+		min-height: 220px;
+	}
+
+	.card.wide .card-visual {
+		min-height: 160px;
 	}
 
 	.card-visual img {
@@ -845,42 +1172,44 @@
 
 	.card-default-icon {
 		font-size: 40px;
-		opacity: 0.25;
+		opacity: 0.2;
 		color: #1a1a1a;
 		user-select: none;
 	}
 
 	/* ---- CARD BODY ---- */
 	.card-body {
-		padding: 16px 18px 18px;
+		padding: 14px 16px 12px;
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 5px;
 	}
 
+	/* Feed-style tag: no fill, just a bottom border underline */
 	.card-tag {
 		display: inline-block;
-		font-size: 11px;
+		font-size: 9px;
 		font-weight: 800;
 		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		background: #1a1a1a;
-		color: #fff;
-		padding: 3px 8px;
-		border-radius: 4px;
+		letter-spacing: 0.1em;
+		color: #1a1a1a;
 		align-self: flex-start;
+		border-bottom: 2px solid #1a1a1a;
+		padding-bottom: 2px;
 	}
 
+	/* Draft tag gets a muted underline */
 	.draft-tag {
-		background: #888;
+		color: #888;
+		border-bottom-color: #888;
 	}
 
 	.card-title {
-		font-size: 18px;
-		font-weight: 700;
+		font-size: 15px;
+		font-weight: 800;
 		letter-spacing: -0.02em;
-		margin: 4px 0 0;
-		line-height: 1.3;
+		margin: 3px 0 0;
+		line-height: 1.35;
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		line-clamp: 2;
@@ -888,59 +1217,100 @@
 		overflow: hidden;
 	}
 
+	/* ---- CARD META / AUTHOR ---- */
 	.card-meta {
-		font-size: 12px;
-		color: #888;
-		margin-top: 2px;
-	}
-
-	.card-top-row {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: 8px;
+		margin-top: 6px;
 	}
 
-	.card-edit {
-		font-size: 11px;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: #1a1a1a;
-		text-decoration: none;
-		border: 2px solid #1a1a1a;
-		padding: 2px 8px;
-		border-radius: 4px;
-		cursor: pointer;
-		transition: background 0.12s, color 0.12s;
+	.card-author {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 	}
 
-	.card-edit:hover {
+	.card-author-avatar {
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		object-fit: cover;
+		border: 1.5px solid #1a1a1a;
+		flex-shrink: 0;
+	}
+
+	.card-author-letter {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
 		background: #1a1a1a;
 		color: #fff;
+		font-size: 10px;
+		font-weight: 800;
+		flex-shrink: 0;
 	}
 
-	.card-stats {
-		display: flex;
-		gap: 12px;
-		font-size: 12px;
-		color: #555;
+	.card-author-name {
+		font-size: 11px;
+		font-weight: 700;
+		color: #1a1a1a;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 120px;
+	}
+
+	.card-date {
+		font-size: 10px;
+		color: #999;
 		font-weight: 500;
+		white-space: nowrap;
 	}
 
-	.stat-icon {
-		width: 14px;
-		height: 14px;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 2;
-		stroke-linecap: round;
-		stroke-linejoin: round;
-		vertical-align: -2px;
-		margin-right: 2px;
+	.card-proofreads {
+		font-size: 10px;
+		font-weight: 700;
+		color: #888;
+		letter-spacing: 0.02em;
 	}
 
-	.card-meta .stat-icon {
-		opacity: 0.6;
+	/* ---- CARD FOOTER ROW (read-more + actions) ---- */
+	.card-footer-row {
+		margin-top: 8px;
+		padding-top: 10px;
+		border-top: 1px solid #e0dfdc;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
+	/* ---- READ MORE BAR ---- */
+	.card-read-more {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.card-read-more span {
+		font-size: 10px;
+		font-weight: 800;
+		letter-spacing: 0.12em;
+		color: #1a1a1a;
+	}
+
+	.card-arrow {
+		font-size: 14px;
+		transition: transform 0.15s;
+	}
+
+	.card:hover .card-arrow {
+		transform: translateX(3px);
 	}
 
 	/* ---- DARK MODE CARD ---- */
@@ -962,34 +1332,39 @@
 		color: #fff;
 	}
 
-	.card.dark .card-meta {
-		color: #777;
-	}
-
-	.card.dark .card-stats {
-		color: #999;
-	}
-
 	.card.dark .card-tag {
-		background: #fff;
-		color: #0a0a0a;
+		color: #ccc;
+		border-bottom-color: #555;
 	}
 
 	.card.dark .draft-tag {
-		background: #666;
+		color: #666;
+		border-bottom-color: #444;
+	}
+
+	.card.dark .card-date {
+		color: #666;
+	}
+
+	.card.dark .card-author-name {
+		color: #ccc;
+	}
+
+	.card.dark .card-author-letter {
+		background: #444;
 		color: #fff;
 	}
 
-	.card.dark .card-edit {
-		color: #ccc;
+	.card.dark .card-author-avatar {
 		border-color: #555;
-		background: transparent;
 	}
 
-	.card.dark .card-edit:hover {
-		background: #fff;
-		color: #0a0a0a;
-		border-color: #fff;
+	.card.dark .card-footer-row {
+		border-top-color: #2a2a2a;
+	}
+
+	.card.dark .card-read-more span {
+		color: #ccc;
 	}
 
 	.card.dark .card-default-icon {
@@ -998,6 +1373,19 @@
 
 	.card.dark .card-visual {
 		background: #111;
+	}
+
+	.card.dark .card-proofreads {
+		color: #666;
+	}
+
+	.card.dark .collab-pip {
+		color: #ccc;
+		border-color: #555;
+	}
+
+	.card.dark .collab-dot {
+		background: #ccc;
 	}
 
 	/* ---- CINEMATIC MODE CARD ---- */
@@ -1031,30 +1419,32 @@
 		color: #2a2a2c;
 	}
 
-	.card.cinematic .card-meta {
+	.card.cinematic .card-date {
 		color: var(--card-muted, #8a8580);
 	}
 
-	.card.cinematic .card-stats {
-		color: var(--card-muted, #7a756e);
-	}
-
 	.card.cinematic .card-tag {
-		background: #3a3632;
+		color: #3a3632;
+		border-bottom-color: #3a3632;
 	}
 
-	.card.cinematic .card-edit {
-		color: var(--card-muted, #5a5550);
-		border-color: var(--card-border, #b8b0a4);
+	.card.cinematic .card-author-name {
+		color: #3a3632;
 	}
 
-	.card.cinematic .card-edit:hover {
-		background: #3a3632;
-		color: var(--card-bg, #faf8f4);
-		border-color: #3a3632;
+	.card.cinematic .card-footer-row {
+		border-top-color: var(--card-border, #d4cfc4);
+	}
+
+	.card.cinematic .card-read-more span {
+		color: #3a3632;
 	}
 
 	.card.cinematic .card-default-icon {
+		color: var(--card-muted, #8a8580);
+	}
+
+	.card.cinematic .card-proofreads {
 		color: var(--card-muted, #8a8580);
 	}
 
@@ -1080,28 +1470,29 @@
 		color: #e8e4dc;
 	}
 
-	.card.dark.cinematic .card-meta {
+	.card.dark.cinematic .card-date {
 		color: #6a665e;
 	}
 
-	.card.dark.cinematic .card-stats {
-		color: #7a766e;
-	}
-
 	.card.dark.cinematic .card-tag {
-		background: #d4cfc4;
-		color: #0c0b0a;
+		color: #d4cfc4;
+		border-bottom-color: #3a3630;
 	}
 
-	.card.dark.cinematic .card-edit {
-		color: #9a9488;
-		border-color: #3a3630;
+	.card.dark.cinematic .card-author-name {
+		color: #d4cfc4;
 	}
 
-	.card.dark.cinematic .card-edit:hover {
-		background: #d4cfc4;
-		color: #0c0b0a;
-		border-color: #d4cfc4;
+	.card.dark.cinematic .card-footer-row {
+		border-top-color: #2a2824;
+	}
+
+	.card.dark.cinematic .card-read-more span {
+		color: #d4cfc4;
+	}
+
+	.card.dark.cinematic .card-proofreads {
+		color: #6a665e;
 	}
 
 	/* ---- USER BACKGROUND COLOR CARD ---- */
@@ -1117,11 +1508,10 @@
 		background: color-mix(in srgb, var(--card-user-bg) 80%, #000 20%);
 	}
 
-	/* ---- CARD ACTIONS ---- */
+	/* ---- CARD ACTIONS (icon buttons in footer) ---- */
 	.card-actions {
 		display: flex;
-		gap: 6px;
-		margin-top: 6px;
+		gap: 4px;
 		opacity: 0;
 		transition: opacity 0.15s;
 	}
@@ -1133,28 +1523,33 @@
 	.card-action {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
-		font-size: 11px;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		padding: 3px 8px;
-		border: 2px solid #ddd;
+		justify-content: center;
+		width: 26px;
+		height: 26px;
+		border: 1.5px solid #ddd;
 		border-radius: 4px;
 		background: transparent;
-		color: #888;
+		color: #999;
 		cursor: pointer;
 		transition: all 0.12s;
+		padding: 0;
+		font-size: 12px;
 	}
 
 	.card-action svg {
-		width: 13px;
-		height: 13px;
+		width: 12px;
+		height: 12px;
 		fill: none;
 		stroke: currentColor;
 		stroke-width: 2;
 		stroke-linecap: round;
 		stroke-linejoin: round;
+	}
+
+	.card-edit-btn:hover {
+		border-color: #1a1a1a;
+		color: #1a1a1a;
+		background: #f5f5f3;
 	}
 
 	.archive-action:hover {
@@ -1177,8 +1572,14 @@
 
 	/* Dark card action overrides */
 	.card.dark .card-action {
-		border-color: #444;
-		color: #777;
+		border-color: #333;
+		color: #666;
+	}
+
+	.card.dark .card-edit-btn:hover {
+		border-color: #fff;
+		color: #fff;
+		background: rgba(255,255,255,0.1);
 	}
 
 	.card.dark .archive-action:hover {
@@ -1255,11 +1656,8 @@
 	}
 
 	.archived-tag {
-		background: #888 !important;
-	}
-
-	.archived-card .card-actions {
-		opacity: 1;
+		color: #999 !important;
+		border-bottom-color: #ccc !important;
 	}
 
 	/* ---- DELETE MODAL ---- */
@@ -1336,40 +1734,59 @@
 	}
 
 	/* ---- RESPONSIVE ---- */
-	@media (max-width: 900px) {
-		.masonry {
-			columns: 2;
+	@media (max-width: 1200px) {
+		.masonry { columns: 3; }
+	}
+
+	@media (max-width: 1100px) {
+		.dashboard:has(.cover-rail:hover) {
+			grid-template-columns: 300px 1fr;
+		}
+		.dash-main {
+			padding: 32px 24px 60px;
 		}
 	}
 
-	@media (max-width: 560px) {
+	@media (max-width: 860px) {
 		.dashboard {
-			padding: 0 16px 60px;
+			grid-template-columns: 1fr;
 		}
+		.dashboard:has(.cover-rail:hover) {
+			grid-template-columns: 1fr;
+		}
+		.cover-rail {
+			position: relative;
+			height: auto;
+			border-right: none;
+			border-bottom: 3px solid #1a1a1a;
+			overflow: visible;
+			padding-bottom: 28px;
+		}
+		.cover-bg { position: absolute; }
+		.cover-brand { opacity: 0.9 !important; padding: 20px 24px !important; }
+		.cover-content { padding: 0 24px !important; }
+		.cover-title { font-size: clamp(2.5rem, 6vw, 3.5rem) !important; }
+		.cover-sub { opacity: 1 !important; max-height: none !important; }
+		.cover-nav-links { opacity: 1 !important; max-height: none !important; }
+		.open-form { opacity: 1 !important; max-height: none !important; }
+		.cover-foot { opacity: 1 !important; max-height: none !important; padding: 20px 24px; }
+		.dash-main { padding: 28px 20px 60px; }
+		.masonry { columns: 3; }
+	}
 
-		.masonry {
-			columns: 1;
-		}
+	@media (max-width: 560px) {
+		.cover-brand { padding: 16px 16px !important; }
+		.cover-content { padding: 0 16px !important; }
+		.cover-title { font-size: 2rem !important; }
+		.cover-foot { padding: 16px 16px; }
+		.dash-main { padding: 20px 12px 48px; }
+		.masonry { columns: 2; }
+		.card-actions { opacity: 1; }
+		.modal-card { padding: 22px 20px; }
+	}
 
-		.nav-links {
-			display: none;
-		}
-
-		.hero h1 {
-			font-size: 28px;
-		}
-
-		.open-form {
-			display: none;
-		}
-
-		.card-actions {
-			opacity: 1;
-		}
-
-		.modal-card {
-			padding: 22px 20px;
-		}
+	@media (max-width: 380px) {
+		.masonry { columns: 1; }
 	}
 
 	/* ═══════════════════════════════════════════════

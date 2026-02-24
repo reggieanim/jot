@@ -195,7 +195,8 @@ func (repository *Repository) ListPublishedPagesByOwner(ctx context.Context, own
 			p.dark_mode, p.cinematic, p.mood, p.bg_color, p.owner_id, p.created_at, p.updated_at, p.deleted_at,
 			(SELECT count(*) FROM proofreads pr WHERE pr.page_id = p.id) AS proofread_count,
 			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count,
-			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count
+			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count,
+			EXISTS(SELECT 1 FROM page_share_links s WHERE s.page_id = p.id AND s.revoked = false) AS has_share_links
 		FROM pages p
 		WHERE p.deleted_at IS NULL AND p.published = true AND p.owner_id = $1
 		ORDER BY p.published_at DESC
@@ -208,7 +209,7 @@ func (repository *Repository) ListPublishedPagesByOwner(ctx context.Context, own
 	pages := make([]domain.Page, 0)
 	for rows.Next() {
 		var page domain.Page
-		if err := rows.Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ProofreadCount, &page.BlockCount, &page.ReadCount); err != nil {
+		if err := rows.Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ProofreadCount, &page.BlockCount, &page.ReadCount, &page.HasShareLinks); err != nil {
 			return nil, fmt.Errorf("scan published page row: %w", err)
 		}
 		pages = append(pages, page)
@@ -285,6 +286,7 @@ func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offs
 			(SELECT count(*) FROM proofreads pr WHERE pr.page_id = p.id) AS proofread_count,
 			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count,
 			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count,
+			EXISTS(SELECT 1 FROM page_share_links s WHERE s.page_id = p.id AND s.revoked = false) AS has_share_links,
 			COALESCE(u.username, '') AS author_username,
 			COALESCE(u.display_name, '') AS author_display_name,
 			COALESCE(u.avatar_url, '') AS author_avatar_url
@@ -308,7 +310,7 @@ func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offs
 			&fp.ID, &fp.Title, &fp.Cover, &fp.Published, &fp.PublishedAt,
 			&fp.DarkMode, &fp.Cinematic, &fp.Mood, &fp.BgColor, &fp.OwnerID,
 			&fp.CreatedAt, &fp.UpdatedAt, &fp.DeletedAt,
-			&fp.ProofreadCount, &fp.BlockCount, &fp.ReadCount,
+			&fp.ProofreadCount, &fp.BlockCount, &fp.ReadCount, &fp.HasShareLinks,
 			&fp.AuthorUsername, &fp.AuthorDisplayName, &fp.AuthorAvatarURL,
 		); err != nil {
 			return nil, fmt.Errorf("scan feed page row: %w", err)
@@ -387,6 +389,18 @@ func (repository *Repository) GetShareLinkByToken(ctx context.Context, token str
 	return share, nil
 }
 
+func (repository *Repository) RevokeShareLinksByAccess(ctx context.Context, pageID domain.PageID, ownerID string, access domain.ShareAccess) error {
+	_, err := repository.pool.Exec(ctx, `
+		UPDATE page_share_links
+		SET revoked = true
+		WHERE page_id = $1 AND created_by = $2 AND access = $3 AND revoked = false
+	`, string(pageID), ownerID, string(access))
+	if err != nil {
+		return fmt.Errorf("revoke share links: %w", err)
+	}
+	return nil
+}
+
 func (repository *Repository) UpdateBlocksOptimistic(ctx context.Context, pageID domain.PageID, blocks []domain.Block, expectedUpdatedAt *time.Time) error {
 	tx, err := repository.pool.Begin(ctx)
 	if err != nil {
@@ -434,10 +448,11 @@ func (repository *Repository) GetByID(ctx context.Context, pageID domain.PageID)
 			p.id, p.title, p.cover, p.published, p.published_at,
 			p.dark_mode, p.cinematic, p.mood, p.bg_color, p.owner_id,
 			p.created_at, p.updated_at, p.deleted_at,
-			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count
+			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count,
+			EXISTS(SELECT 1 FROM page_share_links s WHERE s.page_id = p.id AND s.revoked = false) AS has_share_links
 		FROM pages p
 		WHERE p.id = $1
-	`, string(pageID)).Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ReadCount)
+	`, string(pageID)).Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ReadCount, &page.HasShareLinks)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.Page{}, errs.ErrNotFound
@@ -482,7 +497,8 @@ func (repository *Repository) ListPages(ctx context.Context, ownerID string) ([]
 			p.dark_mode, p.cinematic, p.mood, p.bg_color, p.owner_id, p.created_at, p.updated_at, p.deleted_at,
 			(SELECT count(*) FROM proofreads pr WHERE pr.page_id = p.id) AS proofread_count,
 			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count,
-			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count
+			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count,
+			EXISTS(SELECT 1 FROM page_share_links s WHERE s.page_id = p.id AND s.revoked = false) AS has_share_links
 		FROM pages p
 		WHERE p.deleted_at IS NULL AND p.owner_id = $1
 		ORDER BY p.updated_at DESC
@@ -495,7 +511,7 @@ func (repository *Repository) ListPages(ctx context.Context, ownerID string) ([]
 	pages := make([]domain.Page, 0)
 	for rows.Next() {
 		var page domain.Page
-		if err := rows.Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ProofreadCount, &page.BlockCount, &page.ReadCount); err != nil {
+		if err := rows.Scan(&page.ID, &page.Title, &page.Cover, &page.Published, &page.PublishedAt, &page.DarkMode, &page.Cinematic, &page.Mood, &page.BgColor, &page.OwnerID, &page.CreatedAt, &page.UpdatedAt, &page.DeletedAt, &page.ProofreadCount, &page.BlockCount, &page.ReadCount, &page.HasShareLinks); err != nil {
 			return nil, fmt.Errorf("scan page row: %w", err)
 		}
 		pages = append(pages, page)
@@ -689,4 +705,44 @@ func (repository *Repository) insertBlocks(ctx context.Context, tx pgx.Tx, pageI
 		}
 	}
 	return nil
+}
+
+func (repository *Repository) UpsertCollabUser(ctx context.Context, pageID domain.PageID, userID string, access string) error {
+	_, err := repository.pool.Exec(ctx, `
+		INSERT INTO page_collab_users (page_id, user_id, access, last_seen_at)
+		VALUES ($1, $2, $3, now())
+		ON CONFLICT (page_id, user_id)
+		DO UPDATE SET access = EXCLUDED.access, last_seen_at = now()
+	`, string(pageID), userID, access)
+	if err != nil {
+		return fmt.Errorf("upsert collab user: %w", err)
+	}
+	return nil
+}
+
+func (repository *Repository) ListCollabUsers(ctx context.Context, pageID domain.PageID) ([]domain.CollabUser, error) {
+	rows, err := repository.pool.Query(ctx, `
+		SELECT u.id, u.username, u.display_name, u.avatar_url, pcu.access, pcu.last_seen_at
+		FROM page_collab_users pcu
+		JOIN users u ON u.id = pcu.user_id
+		WHERE pcu.page_id = $1
+		ORDER BY pcu.last_seen_at DESC
+	`, string(pageID))
+	if err != nil {
+		return nil, fmt.Errorf("list collab users: %w", err)
+	}
+	defer rows.Close()
+
+	users := make([]domain.CollabUser, 0)
+	for rows.Next() {
+		var cu domain.CollabUser
+		if err := rows.Scan(&cu.UserID, &cu.Username, &cu.DisplayName, &cu.AvatarURL, &cu.Access, &cu.LastSeenAt); err != nil {
+			return nil, fmt.Errorf("scan collab user: %w", err)
+		}
+		users = append(users, cu)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate collab users: %w", err)
+	}
+	return users, nil
 }

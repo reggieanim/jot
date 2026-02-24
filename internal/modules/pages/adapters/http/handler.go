@@ -131,6 +131,7 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, 
 	v1.GET("/public/pages/:pageID/proofreads", handler.listProofreads)
 	v1.POST("/public/pages/:pageID/proofreads", handler.createProofread)
 	v1.GET("/public/proofreads/:proofreadID", handler.getProofread)
+	v1.GET("/public/pages/:pageID/collaborators", handler.listPublicCollabUsers)
 	v1.GET("/users/:userID/pages", handler.listPublishedPagesByUser)
 	v1.GET("/public/feed", handler.listFeed)
 
@@ -163,6 +164,8 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, 
 		protected.PUT("/pages/:pageID/restore", handler.restorePage)
 		protected.PUT("/pages/:pageID/publish", handler.setPagePublished)
 		protected.POST("/pages/:pageID/share", handler.createShareLink)
+		protected.DELETE("/pages/:pageID/share/:access", handler.revokeShareLink)
+		protected.GET("/pages/:pageID/collaborators", handler.listCollabUsers)
 	}
 }
 
@@ -174,6 +177,27 @@ func (handler *Handler) listPages(ctx *gin.Context) {
 		return
 	}
 	ctx.JSON(200, gin.H{"items": pages})
+}
+
+func (handler *Handler) listCollabUsers(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
+	pageID := domain.PageID(ctx.Param("pageID"))
+	users, err := handler.service.ListCollabUsers(ctx.Request.Context(), string(uid), pageID)
+	if err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	ctx.JSON(200, gin.H{"collaborators": users})
+}
+
+func (handler *Handler) listPublicCollabUsers(ctx *gin.Context) {
+	pageID := domain.PageID(ctx.Param("pageID"))
+	users, err := handler.service.ListPublicCollabUsers(ctx.Request.Context(), pageID)
+	if err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	ctx.JSON(200, gin.H{"collaborators": users})
 }
 
 func (handler *Handler) deletePage(ctx *gin.Context) {
@@ -787,6 +811,17 @@ func (handler *Handler) createShareLink(ctx *gin.Context) {
 		"access": share.Access,
 		"url":    fmt.Sprintf("/editor/%s?share=%s", pageID, share.Token),
 	})
+}
+
+func (handler *Handler) revokeShareLink(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
+	pageID := domain.PageID(ctx.Param("pageID"))
+	access := domain.ShareAccess(strings.TrimSpace(strings.ToLower(ctx.Param("access"))))
+	if err := handler.service.RevokeShareLink(ctx.Request.Context(), string(uid), pageID, access); err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	ctx.JSON(200, gin.H{"status": "revoked", "access": access})
 }
 
 func (handler *Handler) listFeed(ctx *gin.Context) {

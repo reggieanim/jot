@@ -19,6 +19,7 @@ export type ApiPage = {
 	proofread_count?: number;
 	block_count?: number;
 	read_count?: number;
+	has_share_links?: boolean;
 	updated_at?: string;
 	deleted_at?: string;
 };

@@ -26,6 +26,16 @@
 	let loading = true;
 	let error = '';
 	let creating = false;
+	let hasShareLinks = false;
+
+	type ApiCollabUser = {
+		user_id: string;
+		username: string;
+		display_name: string;
+		avatar_url: string;
+		access: string;
+	};
+	let collabUsers: ApiCollabUser[] = [];
 
 	let proofreadMode = false;
 	let selectedBlockId = '';
@@ -61,6 +71,7 @@
 			cover = currentPage.cover || null;
 			blocks = currentPage.blocks || [];
 			readCount = currentPage.read_count || 0;
+			hasShareLinks = !!currentPage.has_share_links;
 			darkMode = !!currentPage.dark_mode;
 			cinematicEnabled = currentPage.cinematic !== false;
 			moodStrength = Number(currentPage.mood ?? 65);
@@ -71,6 +82,14 @@
 			if (proofRes.ok) {
 				const payload = await proofRes.json();
 				proofreads = payload?.items || [];
+			}
+
+			if (hasShareLinks) {
+				const collabRes = await fetch(`${apiUrl}/v1/public/pages/${encodeURIComponent(pageId)}/collaborators`);
+				if (collabRes.ok) {
+					const collabPayload = await collabRes.json();
+					collabUsers = collabPayload?.collaborators || [];
+				}
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load page';
@@ -236,7 +255,29 @@
 								{/if}
 							</button>
 							<span class="proofread-count">{Object.values(draftStates).filter((item) => item?.text?.trim()).length} notes</span>
-							<span class="proofread-count">{readCount} reads</span>
+						<span class="proofread-count">{readCount} reads</span>
+						{#if hasShareLinks}
+							{#if collabUsers.length > 0}
+								<div class="pub-collab-avatars">
+								{#each collabUsers.slice(0, 4) as cu (cu.user_id)}
+									{#if cu.avatar_url}
+										<a href={`/user/${cu.username}`} class="collab-avatar-link"><img class="pub-collab-avatar" src={cu.avatar_url} alt={cu.display_name || cu.username} title={cu.display_name || cu.username} /></a>
+									{:else}
+										<a href={`/user/${cu.username}`} class="collab-avatar-link"><span class="pub-collab-avatar pub-collab-avatar-letter" title={cu.display_name || cu.username}>{(cu.display_name || cu.username || '?').charAt(0).toUpperCase()}</span></a>
+									{/if}
+								{/each}
+									{#if collabUsers.length > 4}
+										<span class="pub-collab-avatar pub-collab-avatar-more">+{collabUsers.length - 4}</span>
+									{/if}
+									<span class="pub-collab-label">{collabUsers.length} collab{collabUsers.length === 1 ? '' : 's'}</span>
+								</div>
+							{:else}
+								<span class="page-collab-badge" title="Live collaboration enabled">
+									<span class="page-collab-dot"></span>
+									Collab
+								</span>
+							{/if}
+						{/if}
 						</div>
 					</div>
 				</div>
@@ -531,6 +572,78 @@
 		font-size: 12px;
 		font-weight: 600;
 		color: var(--note-muted, #6b7280);
+	}
+
+	/* ── Collab badge on public page ── */
+	.page-collab-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 10px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.09em;
+		color: #1a1a1a;
+		border: 1.5px solid #1a1a1a;
+		padding: 2px 7px 2px 5px;
+		border-radius: 4px;
+		background: transparent;
+	}
+
+	.page-collab-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: #1a1a1a;
+		flex-shrink: 0;
+		animation: collab-pulse-pub 2.2s ease-in-out infinite;
+	}
+
+	@keyframes collab-pulse-pub {
+		0%, 100% { opacity: 1; transform: scale(1); }
+		50% { opacity: 0.35; transform: scale(0.75); }
+	}
+
+	/* Public collab avatar strip */
+	.pub-collab-avatars {
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.pub-collab-avatar {
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		border: 2px solid var(--note-bg, #fff);
+		object-fit: cover;
+		margin-right: -5px;
+		flex-shrink: 0;
+	}
+
+	.pub-collab-avatar-letter,
+	.pub-collab-avatar-more {
+		background: #1a1a1a;
+		color: #fafaf8;
+		font-size: 8px;
+		font-weight: 800;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		user-select: none;
+	}
+
+	.pub-collab-label {
+		margin-left: 11px;
+		font-size: 10px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.09em;
+		color: var(--note-muted, #6b7280);
+	}
+
+	.collab-avatar-link {
+		display: contents;
+		text-decoration: none;
 	}
 
 	.page-title {

@@ -176,6 +176,16 @@ func (repo *inMemoryRepo) GetShareLinkByToken(_ context.Context, token string) (
 	return domain.PageShareLink{}, nil
 }
 
+func (repo *inMemoryRepo) RevokeShareLinksByAccess(_ context.Context, pageID domain.PageID, ownerID string, access domain.ShareAccess) error {
+	for token, share := range repo.shares {
+		if share.PageID == pageID && share.CreatedBy == ownerID && share.Access == access {
+			share.Revoked = true
+			repo.shares[token] = share
+		}
+	}
+	return nil
+}
+
 func (repo *inMemoryRepo) RecordOrganicRead(_ context.Context, pageID domain.PageID, readerKey string) (bool, error) {
 	if _, ok := repo.reads[pageID]; !ok {
 		repo.reads[pageID] = map[string]struct{}{}
@@ -188,6 +198,14 @@ func (repo *inMemoryRepo) RecordOrganicRead(_ context.Context, pageID domain.Pag
 	page.ReadCount++
 	repo.store[pageID] = page
 	return true, nil
+}
+
+func (repo *inMemoryRepo) UpsertCollabUser(_ context.Context, _ domain.PageID, _ string, _ string) error {
+	return nil
+}
+
+func (repo *inMemoryRepo) ListCollabUsers(_ context.Context, _ domain.PageID) ([]domain.CollabUser, error) {
+	return []domain.CollabUser{}, nil
 }
 
 type noOpEvents struct{}

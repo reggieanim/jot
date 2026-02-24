@@ -19,6 +19,7 @@ type PageRepository interface {
 	ListPublishedFeed(ctx context.Context, limit, offset int, sort string) ([]domain.FeedPage, error)
 	CreateShareLink(ctx context.Context, share domain.PageShareLink) error
 	GetShareLinkByToken(ctx context.Context, token string) (domain.PageShareLink, error)
+	RevokeShareLinksByAccess(ctx context.Context, pageID domain.PageID, ownerID string, access domain.ShareAccess) error
 	DeletePage(ctx context.Context, pageID domain.PageID) error
 	ArchivePage(ctx context.Context, pageID domain.PageID) error
 	RestorePage(ctx context.Context, pageID domain.PageID) error
@@ -27,4 +28,6 @@ type PageRepository interface {
 	CreateProofread(ctx context.Context, proofread domain.Proofread) error
 	ListProofreadsByPageID(ctx context.Context, pageID domain.PageID) ([]domain.Proofread, error)
 	GetProofreadByID(ctx context.Context, proofreadID domain.ProofreadID) (domain.Proofread, error)
+	UpsertCollabUser(ctx context.Context, pageID domain.PageID, userID string, access string) error
+	ListCollabUsers(ctx context.Context, pageID domain.PageID) ([]domain.CollabUser, error)
 }
