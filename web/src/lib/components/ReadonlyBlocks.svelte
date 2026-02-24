@@ -218,10 +218,6 @@
 					</div>
 				{:else if block.type === 'quote'}
 					<blockquote class="editable quote readonly-paragraph" class:dimmed={dimOriginal} class:strike={dimOriginal && draftKind === 'strike'}>{@html htmlOf(block)}</blockquote>
-				{:else if block.type === 'divider'}
-					<div class="divider-wrap">
-						<hr class="divider" />
-					</div>
 				{:else if block.type === 'image'}
 					{#if block.data?.url}
 						<figure class="media-figure">
@@ -551,18 +547,7 @@
 		font-style: italic;
 	}
 
-	.divider {
-		border: none;
-		border-top: 1px solid var(--note-border, #e5e7eb);
-		margin: 0;
-	}
 
-	.divider-wrap {
-		display: flex;
-		align-items: center;
-		min-height: 26px;
-		padding: 6px 0;
-	}
 
 	.block-image {
 		max-width: 100%;

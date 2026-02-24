@@ -53,7 +53,7 @@
 		{ id: 'bullet', label: 'Bullet List', icon: '•', description: 'Bulleted list item' },
 		{ id: 'numbered', label: 'Numbered List', icon: '1.', description: 'Numbered list item' },
 		{ id: 'quote', label: 'Quote', icon: '"', description: 'Capture a quote' },
-		{ id: 'divider', label: 'Divider', icon: '—', description: 'Visual divider' },
+
 		{ id: 'image', label: 'Image', icon: '🖼', description: 'Upload or embed image' },
 		{ id: 'gallery', label: 'Gallery', icon: '▦', description: '2-4 image columns' },
 		{ id: 'embed', label: 'Embed', icon: '◆', description: 'Embed external content' },
@@ -387,7 +387,6 @@
 			[/^[-*]\s$/, 'bullet'],
 			[/^1[.)]\s$/, 'numbered'],
 			[/^>\s$/, 'quote'],
-			[/^---$/, 'divider'],
 		];
 		for (const [pattern, blockType] of patterns) {
 			if (pattern.test(text)) {
@@ -952,10 +951,6 @@
 				on:blur={handleBlur}
 				data-placeholder="Quote"
 			></blockquote>
-		{:else if type === 'divider'}
-			<div class="divider-wrap">
-				<hr class="divider" />
-			</div>
 		{:else if type === 'image'}
 			{#if data?.url}
 				<figure class="media-figure">
@@ -1374,18 +1369,7 @@
 		font-style: italic;
 	}
 
-	.divider {
-		border: none;
-		border-top: 1px solid var(--note-border, #e5e7eb);
-		margin: 0;
-	}
 
-	.divider-wrap {
-		display: flex;
-		align-items: center;
-		min-height: 26px;
-		padding: 6px 0;
-	}
 
 	.block-image {
 		max-width: 100%;
