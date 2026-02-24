@@ -182,6 +182,7 @@
 	{@const hasDraft = !!draftStates[blockId]?.text?.trim()}
 	{@const draftKind = draftStates[blockId]?.kind || 'note'}
 	{@const dimOriginal = hasDraft && isTextual(block)}
+	{@const listNumber = block.type === 'numbered' ? (() => { let n = 1; for (let i = index - 1; i >= 0; i--) { if (blocks[i].type === 'numbered') n++; else break; } return n; })() : 1}
 	<div class="block-wrapper">
 		<div
 			id={`${anchorPrefix}${blockId}`}
@@ -212,7 +213,7 @@
 					</div>
 				{:else if block.type === 'numbered'}
 					<div class="list-block">
-						<span class="number">{block.data?.number || index + 1}.</span>
+						<span class="number">{listNumber}.</span>
 						<div class="editable readonly-paragraph" class:dimmed={dimOriginal} class:strike={dimOriginal && draftKind === 'strike'}>{@html htmlOf(block)}</div>
 					</div>
 				{:else if block.type === 'quote'}
@@ -1029,5 +1030,36 @@
 
 	.popup-link:hover {
 		background: color-mix(in srgb, var(--note-accent, #7c5cff) 6%, transparent);
+	}
+
+	/* ---- Inline rich-text element styles ---- */
+	.editable :global(code) {
+		background: color-mix(in srgb, var(--note-accent, #7c5cff) 10%, var(--note-surface, #f6f6f7));
+		color: var(--note-accent, #7c5cff);
+		padding: 1px 5px;
+		border-radius: 4px;
+		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+		font-size: 0.88em;
+		font-weight: 500;
+		border: 1px solid color-mix(in srgb, var(--note-accent, #7c5cff) 14%, transparent);
+	}
+
+	.editable :global(mark) {
+		background: color-mix(in srgb, #facc15 38%, transparent);
+		color: inherit;
+		padding: 1px 2px;
+		border-radius: 3px;
+	}
+
+	.editable :global(a) {
+		color: var(--note-accent, #7c5cff);
+		text-decoration: underline;
+		text-decoration-color: color-mix(in srgb, var(--note-accent, #7c5cff) 40%, transparent);
+		text-underline-offset: 2px;
+		transition: text-decoration-color 0.15s;
+	}
+
+	.editable :global(a:hover) {
+		text-decoration-color: var(--note-accent, #7c5cff);
 	}
 </style>

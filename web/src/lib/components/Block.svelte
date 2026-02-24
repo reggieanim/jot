@@ -12,6 +12,7 @@
 	export let isDragging = false;
 	export let viewerSessionId = '';
 	export let lockOwner: { sessionId: string; userName: string } | null = null;
+	export let listNumber = 1;
 
 	let showShareToast = false;
 
@@ -171,18 +172,124 @@
 			return;
 		}
 
+		const mod = e.metaKey || e.ctrlKey;
+
+		/* ---- Rich-text keyboard shortcuts ---- */
+		if (mod && isRichTextType) {
+			switch (e.key.toLowerCase()) {
+				case 'b':
+					e.preventDefault();
+					applyFormat('bold');
+					return;
+				case 'i':
+					e.preventDefault();
+					applyFormat('italic');
+					return;
+				case 'u':
+					e.preventDefault();
+					applyFormat('underline');
+					return;
+				case 'k':
+					e.preventDefault();
+					applyLink();
+					return;
+				case 'e':
+					e.preventDefault();
+					toggleInlineTag('CODE');
+					return;
+				case 'h':
+					if (e.shiftKey) {
+						e.preventDefault();
+						toggleInlineTag('MARK');
+						return;
+					}
+					break;
+			}
+		}
+
+		/* Markdown auto-convert on space */
+		if (e.key === ' ' && type === 'paragraph' && isRichTextType) {
+			if (tryMarkdownShortcut()) {
+				e.preventDefault();
+				return;
+			}
+		}
+
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
 			e.stopPropagation();
+
+			/* If a list item is empty on Enter, convert it to paragraph (exit list) */
+			if ((type === 'bullet' || type === 'numbered') && contentEl?.innerText.trim() === '') {
+				dispatch('transform', { id, newType: 'paragraph' });
+				return;
+			}
+
 			saveText();
-			dispatch('addAfter', { id });
+			dispatch('addAfter', { id, type });
 		}
 
 		if (e.key === 'Backspace' && contentEl?.innerText === '') {
 			e.preventDefault();
 			e.stopPropagation();
-			dispatch('delete', { id });
+			/* If backspacing an empty list item, convert to paragraph instead of deleting */
+			if (type === 'bullet' || type === 'numbered') {
+				dispatch('transform', { id, newType: 'paragraph' });
+			} else {
+				dispatch('delete', { id });
+			}
 		}
+	}
+
+	/* ---- Format state detection ---- */
+	let formatBold = false;
+	let formatItalic = false;
+	let formatUnderline = false;
+	let formatStrike = false;
+	let formatCode = false;
+	let formatHighlight = false;
+	let formatLink = false;
+
+	let toolbarStyle = '';
+
+	function detectFormats() {
+		if (!isRichTextType || !isEditingText) return;
+		formatBold = document.queryCommandState('bold');
+		formatItalic = document.queryCommandState('italic');
+		formatUnderline = document.queryCommandState('underline');
+		formatStrike = document.queryCommandState('strikeThrough');
+		// Code & highlight aren't execCommand-backed, detect via ancestor
+		const sel = window.getSelection();
+		if (sel && sel.rangeCount > 0) {
+			const node = sel.anchorNode;
+			formatCode = !!node && !!closestTag(node, 'CODE');
+			formatHighlight = !!node && !!closestTag(node, 'MARK');
+			formatLink = !!node && !!closestTag(node, 'A');
+		}
+	}
+
+	function closestTag(node: Node, tagName: string): HTMLElement | null {
+		let cur: Node | null = node;
+		while (cur && cur !== contentEl) {
+			if (cur.nodeType === Node.ELEMENT_NODE && (cur as HTMLElement).tagName === tagName) {
+				return cur as HTMLElement;
+			}
+			cur = cur.parentNode;
+		}
+		return null;
+	}
+
+	function positionToolbar() {
+		if (!hasRichSelection) { toolbarStyle = ''; return; }
+		const sel = window.getSelection();
+		if (!sel || sel.rangeCount === 0) return;
+		const range = sel.getRangeAt(0);
+		const rect = range.getBoundingClientRect();
+		const blockRect = contentEl?.closest('.block')?.getBoundingClientRect();
+		if (!blockRect) return;
+		const x = rect.left + rect.width / 2 - blockRect.left;
+		const y = rect.top - blockRect.top - 46;
+		toolbarStyle = `left:${x}px;top:${y}px;`;
 	}
 
 	function applyFormat(command: string) {
@@ -192,28 +299,116 @@
 		document.execCommand(command, false);
 		handleInput({ target: contentEl } as unknown as Event);
 		refreshSelectionState();
+		detectFormats();
+		debouncedSave();
+	}
+
+	function toggleInlineTag(tagName: string) {
+		if (isLocked || !contentEl) return;
+		contentEl.focus();
+		restoreSelection();
+
+		const sel = window.getSelection();
+		if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+
+		const range = sel.getRangeAt(0);
+		const existing = closestTag(range.startContainer, tagName);
+
+		if (existing) {
+			// Unwrap: replace the tag with its children
+			const parent = existing.parentNode;
+			if (parent) {
+				while (existing.firstChild) parent.insertBefore(existing.firstChild, existing);
+				parent.removeChild(existing);
+			}
+		} else {
+			// Wrap selection in the tag
+			const wrapper = document.createElement(tagName);
+			try {
+				range.surroundContents(wrapper);
+			} catch {
+				// If surroundContents fails (partial overlap), extract and wrap
+				const fragment = range.extractContents();
+				wrapper.appendChild(fragment);
+				range.insertNode(wrapper);
+			}
+		}
+
+		handleInput({ target: contentEl } as unknown as Event);
+		refreshSelectionState();
+		detectFormats();
 		debouncedSave();
 	}
 
 	function applyLink() {
 		if (isLocked || !contentEl) return;
 		restoreSelection();
-		const href = window.prompt('Paste link URL');
-		if (!href) return;
-		contentEl.focus();
-		restoreSelection();
-		document.execCommand('createLink', false, href.trim());
+
+		const sel = window.getSelection();
+		const existingLink = sel && sel.anchorNode ? closestTag(sel.anchorNode, 'A') : null;
+
+		if (existingLink) {
+			// Edit existing link — prefill with current href
+			const currentHref = existingLink.getAttribute('href') || '';
+			const href = window.prompt('Edit link URL (clear to remove)', currentHref);
+			if (href === null) return; // cancelled
+			if (!href.trim()) {
+				// Remove the link
+				const parent = existingLink.parentNode;
+				if (parent) {
+					while (existingLink.firstChild) parent.insertBefore(existingLink.firstChild, existingLink);
+					parent.removeChild(existingLink);
+				}
+			} else {
+				existingLink.setAttribute('href', href.trim());
+			}
+		} else {
+			const href = window.prompt('Paste link URL');
+			if (!href) return;
+			contentEl.focus();
+			restoreSelection();
+			document.execCommand('createLink', false, href.trim());
+		}
+
 		handleInput({ target: contentEl } as unknown as Event);
 		refreshSelectionState();
+		detectFormats();
 		debouncedSave();
+	}
+
+	/* ---- Markdown auto-convert shortcuts ---- */
+	function tryMarkdownShortcut(): boolean {
+		if (!contentEl) return false;
+		const text = contentEl.textContent || '';
+		const patterns: [RegExp, string][] = [
+			[/^#\s$/, 'heading'],
+			[/^##\s$/, 'heading2'],
+			[/^###\s$/, 'heading3'],
+			[/^[-*]\s$/, 'bullet'],
+			[/^1[.)]\s$/, 'numbered'],
+			[/^>\s$/, 'quote'],
+			[/^---$/, 'divider'],
+		];
+		for (const [pattern, blockType] of patterns) {
+			if (pattern.test(text)) {
+				contentEl.innerHTML = '';
+				dispatch('transform', { id, newType: blockType });
+				return true;
+			}
+		}
+		return false;
 	}
 
 	function handleMouseUp() {
 		refreshSelectionState();
+		detectFormats();
+		positionToolbar();
 	}
 
 	function handleKeyUp() {
 		refreshSelectionState();
+		detectFormats();
+		positionToolbar();
 	}
 
 	function selectSlashCommand(commandId: string) {
@@ -623,13 +818,23 @@
 
 	<div class="block-content">
 		{#if isRichTextType && isEditingText && hasRichSelection && !isLocked}
-			<div class="rich-toolbar" role="toolbar" aria-label="Rich text toolbar">
-				<button type="button" class="rich-btn" on:mousedown|preventDefault on:click={() => applyFormat('bold')}><strong>B</strong></button>
-				<button type="button" class="rich-btn" on:mousedown|preventDefault on:click={() => applyFormat('italic')}><em>I</em></button>
-				<button type="button" class="rich-btn" on:mousedown|preventDefault on:click={() => applyFormat('underline')}><u>U</u></button>
-				<button type="button" class="rich-btn" on:mousedown|preventDefault on:click={() => applyFormat('strikeThrough')}><s>S</s></button>
-				<button type="button" class="rich-btn" on:mousedown|preventDefault on:click={applyLink}>Link</button>
-				<button type="button" class="rich-btn" on:mousedown|preventDefault on:click={() => applyFormat('removeFormat')}>Clear</button>
+			<div class="rich-toolbar" role="toolbar" aria-label="Rich text toolbar" style={toolbarStyle}>
+				<button type="button" class="rich-btn" class:active={formatBold} title="Bold (⌘B)" on:mousedown|preventDefault on:click={() => applyFormat('bold')}><strong>B</strong></button>
+				<button type="button" class="rich-btn" class:active={formatItalic} title="Italic (⌘I)" on:mousedown|preventDefault on:click={() => applyFormat('italic')}><em>I</em></button>
+				<button type="button" class="rich-btn" class:active={formatUnderline} title="Underline (⌘U)" on:mousedown|preventDefault on:click={() => applyFormat('underline')}><u>U</u></button>
+				<button type="button" class="rich-btn" class:active={formatStrike} title="Strikethrough" on:mousedown|preventDefault on:click={() => applyFormat('strikeThrough')}><s>S</s></button>
+				<span class="rich-sep"></span>
+				<button type="button" class="rich-btn mono" class:active={formatCode} title="Inline code (⌘E)" on:mousedown|preventDefault on:click={() => toggleInlineTag('CODE')}>⟨⟩</button>
+				<button type="button" class="rich-btn" class:active={formatHighlight} title="Highlight (⌘⇧H)" on:mousedown|preventDefault on:click={() => toggleInlineTag('MARK')}>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
+				</button>
+				<span class="rich-sep"></span>
+				<button type="button" class="rich-btn" class:active={formatLink} title="Link (⌘K)" on:mousedown|preventDefault on:click={applyLink}>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+				</button>
+				<button type="button" class="rich-btn" title="Clear formatting" on:mousedown|preventDefault on:click={() => applyFormat('removeFormat')}>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+				</button>
 			</div>
 		{/if}
 		{#if isLocked && lockOwner}
@@ -700,7 +905,7 @@
 			</div>
 		{:else if type === 'numbered'}
 			<div class="list-block">
-				<span class="number">{data?.number || '1'}.</span>
+				<span class="number">{listNumber}.</span>
 				<div
 					bind:this={contentEl}
 					bind:innerHTML={localHtml}
@@ -997,27 +1202,69 @@
 	}
 
 	.rich-toolbar {
+		position: absolute;
+		z-index: 50;
 		display: inline-flex;
-		gap: 6px;
-		margin-bottom: 8px;
-		padding: 4px;
+		align-items: center;
+		gap: 2px;
+		padding: 4px 6px;
 		border: 1px solid var(--note-border, #d1d5db);
-		border-radius: 8px;
-		background: color-mix(in srgb, var(--note-surface, #ffffff) 92%, var(--note-accent, #7c5cff) 8%);
+		border-radius: 10px;
+		background: var(--note-surface, #ffffff);
+		box-shadow: 0 8px 30px rgba(15, 23, 42, 0.18), 0 1px 3px rgba(0,0,0,0.06);
+		transform: translateX(-50%);
+		white-space: nowrap;
+		animation: toolbar-in 0.12s ease-out;
+	}
+
+	@keyframes toolbar-in {
+		from { opacity: 0; transform: translateX(-50%) translateY(4px) scale(0.96); }
+		to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+	}
+
+	.rich-sep {
+		width: 1px;
+		height: 18px;
+		background: var(--note-border, #e5e7eb);
+		margin: 0 2px;
+		flex-shrink: 0;
 	}
 
 	.rich-btn {
-		border: 1px solid var(--note-border, #d1d5db);
-		background: var(--note-surface, #ffffff);
+		border: none;
+		background: transparent;
 		color: var(--note-text, #1f2328);
 		border-radius: 6px;
-		padding: 4px 8px;
-		font-size: 12px;
+		padding: 4px 7px;
+		font-size: 13px;
 		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 28px;
+		height: 28px;
+		transition: background 0.1s, color 0.1s;
+		line-height: 1;
 	}
 
 	.rich-btn:hover {
-		background: color-mix(in srgb, var(--note-surface, #ffffff) 86%, var(--note-accent, #7c5cff) 14%);
+		background: color-mix(in srgb, var(--note-accent, #7c5cff) 12%, transparent);
+	}
+
+	.rich-btn.active {
+		background: color-mix(in srgb, var(--note-accent, #7c5cff) 20%, transparent);
+		color: var(--note-accent, #7c5cff);
+	}
+
+	.rich-btn.mono {
+		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+		font-size: 14px;
+		font-weight: 600;
+		letter-spacing: -1px;
+	}
+
+	.rich-btn svg {
+		flex-shrink: 0;
 	}
 
 	.editable {
@@ -1568,5 +1815,36 @@
 		height: auto;
 		border-radius: 4px;
 		box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
+	}
+
+	/* ---- Inline rich-text element styles ---- */
+	.editable :global(code) {
+		background: color-mix(in srgb, var(--note-accent, #7c5cff) 10%, var(--note-surface, #f6f6f7));
+		color: var(--note-accent, #7c5cff);
+		padding: 1px 5px;
+		border-radius: 4px;
+		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+		font-size: 0.88em;
+		font-weight: 500;
+		border: 1px solid color-mix(in srgb, var(--note-accent, #7c5cff) 14%, transparent);
+	}
+
+	.editable :global(mark) {
+		background: color-mix(in srgb, #facc15 38%, transparent);
+		color: inherit;
+		padding: 1px 2px;
+		border-radius: 3px;
+	}
+
+	.editable :global(a) {
+		color: var(--note-accent, #7c5cff);
+		text-decoration: underline;
+		text-decoration-color: color-mix(in srgb, var(--note-accent, #7c5cff) 40%, transparent);
+		text-underline-offset: 2px;
+		transition: text-decoration-color 0.15s;
+	}
+
+	.editable :global(a:hover) {
+		text-decoration-color: var(--note-accent, #7c5cff);
 	}
 </style>

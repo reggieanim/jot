@@ -303,8 +303,10 @@
 	}
 
 	function addBlockAfter(e: CustomEvent) {
-		const { id } = e.detail;
-		addBlock('paragraph', id);
+		const { id, type: blockType } = e.detail;
+		const continueTypes = ['bullet', 'numbered'];
+		const nextType = blockType && continueTypes.includes(blockType) ? blockType : 'paragraph';
+		addBlock(nextType, id);
 	}
 
 	function transformBlock(e: CustomEvent) {
@@ -1128,7 +1130,10 @@
 			</div>
 
 			<div class="blocks-container">
-				{#each blocks as block (block.id)}
+				{#each blocks as block, idx (block.id)}
+					{@const listNumber = block.type === 'numbered'
+						? (() => { let n = 1; for (let i = idx - 1; i >= 0; i--) { if (blocks[i].type === 'numbered') n++; else break; } return n; })()
+						: 1}
 					<div
 						class="block-wrapper"
 						role="group"
@@ -1144,6 +1149,7 @@
 							data={block.data}
 							{apiUrl}
 							{pageId}
+							{listNumber}
 							published={isPublished}
 							{viewerSessionId}
 							lockOwner={block.id ? typingLocks[block.id] || null : null}

@@ -50,6 +50,7 @@ export function sanitizeRichText(html: string): string {
 		'OL',
 		'LI',
 		'CODE',
+		'MARK',
 		'A'
 	]);
 
