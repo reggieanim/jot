@@ -214,6 +214,7 @@
 					<div class="page-title-wrap">
 						<h1 class="page-title">{title}</h1>
 						<div class="proofread-topbar">
+							<a class="feed-link" href="/feed" aria-label="Browse feed" title="Browse feed">Feed</a>
 							<button
 								class="proofread-toggle"
 								class:active={proofreadMode}
@@ -465,6 +466,29 @@
 		flex-wrap: wrap;
 	}
 
+	.feed-link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 34px;
+		padding: 0 12px;
+		border: 2px solid #1a1a1a;
+		border-radius: 8px;
+		background: #fff;
+		color: #1a1a1a;
+		font-size: 12px;
+		font-weight: 800;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		text-decoration: none;
+		transition: transform 0.12s, box-shadow 0.12s;
+	}
+
+	.feed-link:hover {
+		transform: translateY(-2px);
+		box-shadow: 3px 3px 0 #1a1a1a;
+	}
+
 	.proofread-toggle {
 		border: 2px solid #1a1a1a;
 		background: #fff;
@@ -625,6 +649,16 @@
 		background: transparent;
 		color: #f3f4f6;
 		border-color: #f3f4f6;
+	}
+
+	.editor-main.dark .feed-link {
+		background: transparent;
+		color: #f3f4f6;
+		border-color: #f3f4f6;
+	}
+
+	.editor-main.dark .feed-link:hover {
+		box-shadow: 3px 3px 0 #f3f4f6;
 	}
 
 	.editor-main.dark .proofread-toggle.active {

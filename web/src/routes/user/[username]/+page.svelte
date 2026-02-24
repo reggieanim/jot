@@ -718,8 +718,14 @@
 
 	/* ---- MASONRY ---- */
 	.masonry {
-		columns: 3;
-		column-gap: 14px;
+		columns: 4;
+		column-gap: 16px;
+	}
+
+	@media (max-width: 1200px) {
+		.masonry {
+			columns: 3;
+		}
 	}
 
 	/* ---- CARD ---- */
@@ -727,27 +733,27 @@
 		display: inline-flex;
 		flex-direction: column;
 		width: 100%;
-		margin-bottom: 14px;
+		margin-bottom: 16px;
 		background: #fff;
 		border: 2px solid #1a1a1a;
 		border-radius: 8px;
 		overflow: hidden;
 		text-decoration: none;
 		color: inherit;
-		transition: transform 0.12s ease, box-shadow 0.12s ease;
+		transition: transform 0.14s ease, box-shadow 0.14s ease;
 		break-inside: avoid;
 		position: relative;
 	}
 
 	.card:hover {
-		transform: translateY(-3px);
+		transform: translateY(-4px);
 		box-shadow: 6px 6px 0 #1a1a1a;
 	}
 
 	/* ---- CARD VISUAL ---- */
 	.card-visual {
 		width: 100%;
-		min-height: 130px;
+		min-height: 140px;
 		background: #e8e8e4;
 		overflow: hidden;
 		display: flex;
@@ -757,7 +763,11 @@
 	}
 
 	.card.tall .card-visual {
-		min-height: 200px;
+		min-height: 220px;
+	}
+
+	.card.wide .card-visual {
+		min-height: 160px;
 	}
 
 	.card-visual img {
@@ -787,7 +797,7 @@
 
 	/* ---- CARD BODY ---- */
 	.card-body {
-		padding: 12px 14px 10px;
+		padding: 14px 16px 12px;
 		display: flex;
 		flex-direction: column;
 		gap: 5px;
@@ -806,10 +816,10 @@
 	}
 
 	.card-title {
-		font-size: 14px;
+		font-size: 15px;
 		font-weight: 800;
 		letter-spacing: -0.02em;
-		margin: 2px 0 0;
+		margin: 3px 0 0;
 		line-height: 1.35;
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
