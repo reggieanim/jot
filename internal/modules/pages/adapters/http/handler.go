@@ -587,7 +587,7 @@ func (handler *Handler) getPage(ctx *gin.Context) {
 		handler.handleError(ctx, err)
 		return
 	}
-	if page.OwnerID != string(uid) {
+	if page.OwnerID == nil || *page.OwnerID != string(uid) {
 		ctx.JSON(403, gin.H{"error": "forbidden"})
 		return
 	}

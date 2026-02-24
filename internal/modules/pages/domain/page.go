@@ -25,7 +25,7 @@ type Block struct {
 
 type Page struct {
 	ID             PageID     `json:"id"`
-	OwnerID        string     `json:"owner_id,omitempty"`
+	OwnerID        *string    `json:"owner_id,omitempty"`
 	Title          string     `json:"title"`
 	Cover          *string    `json:"cover,omitempty"`
 	Published      bool       `json:"published"`
@@ -47,5 +47,5 @@ type FeedPage struct {
 	Page
 	AuthorUsername    string `json:"author_username"`
 	AuthorDisplayName string `json:"author_display_name"`
-	AuthorAvatarURL  string `json:"author_avatar_url"`
+	AuthorAvatarURL   string `json:"author_avatar_url"`
 }

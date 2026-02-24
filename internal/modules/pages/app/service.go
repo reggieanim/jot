@@ -53,7 +53,7 @@ func (service *Service) CreatePageWithSettings(
 	now := service.clock.Now()
 	page := domain.Page{
 		ID:        domain.PageID(uuid.NewString()),
-		OwnerID:   ownerID,
+		OwnerID:   &ownerID,
 		Title:     title,
 		Cover:     cover,
 		Published: false,
@@ -182,7 +182,7 @@ func (service *Service) DeletePage(ctx context.Context, ownerID string, pageID d
 	if err != nil {
 		return fmt.Errorf("get page for delete: %w", err)
 	}
-	if page.OwnerID != ownerID {
+	if page.OwnerID == nil || *page.OwnerID != ownerID {
 		return errs.ErrForbidden
 	}
 
@@ -218,7 +218,7 @@ func (service *Service) RestorePage(ctx context.Context, ownerID string, pageID 
 	if err != nil {
 		return fmt.Errorf("get page for restore: %w", err)
 	}
-	if page.OwnerID != ownerID {
+	if page.OwnerID == nil || *page.OwnerID != ownerID {
 		return errs.ErrForbidden
 	}
 	if err := service.repo.RestorePage(ctx, pageID); err != nil {
@@ -256,7 +256,7 @@ func (service *Service) checkOwnership(ctx context.Context, pageID domain.PageID
 	if err != nil {
 		return fmt.Errorf("check ownership: %w", err)
 	}
-	if page.OwnerID != ownerID {
+	if page.OwnerID == nil || *page.OwnerID != ownerID {
 		return errs.ErrForbidden
 	}
 	return nil

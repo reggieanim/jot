@@ -96,7 +96,7 @@ func (repo *inMemoryRepo) GetProofreadByID(_ context.Context, proofreadID domain
 func (repo *inMemoryRepo) ListPages(_ context.Context, ownerID string) ([]domain.Page, error) {
 	pages := make([]domain.Page, 0, len(repo.store))
 	for _, page := range repo.store {
-		if page.DeletedAt == nil && page.OwnerID == ownerID {
+		if page.DeletedAt == nil && page.OwnerID != nil && *page.OwnerID == ownerID {
 			pages = append(pages, page)
 		}
 	}
@@ -126,7 +126,7 @@ func (repo *inMemoryRepo) RestorePage(_ context.Context, pageID domain.PageID) e
 func (repo *inMemoryRepo) ListArchivedPages(_ context.Context, ownerID string) ([]domain.Page, error) {
 	pages := make([]domain.Page, 0)
 	for _, page := range repo.store {
-		if page.DeletedAt != nil && page.OwnerID == ownerID {
+		if page.DeletedAt != nil && page.OwnerID != nil && *page.OwnerID == ownerID {
 			pages = append(pages, page)
 		}
 	}
@@ -136,7 +136,7 @@ func (repo *inMemoryRepo) ListArchivedPages(_ context.Context, ownerID string) (
 func (repo *inMemoryRepo) ListPublishedPagesByOwner(_ context.Context, ownerID string) ([]domain.Page, error) {
 	pages := make([]domain.Page, 0)
 	for _, page := range repo.store {
-		if page.DeletedAt == nil && page.Published && page.OwnerID == ownerID {
+		if page.DeletedAt == nil && page.Published && page.OwnerID != nil && *page.OwnerID == ownerID {
 			pages = append(pages, page)
 		}
 	}
@@ -193,7 +193,7 @@ func TestCreateAndGetPage(t *testing.T) {
 		t.Fatalf("expected 1 block, got %d", len(got.Blocks))
 	}
 
-	if got.OwnerID != "owner-1" {
-		t.Fatalf("expected owner_id owner-1, got %s", got.OwnerID)
+	if got.OwnerID == nil || *got.OwnerID != "owner-1" {
+		t.Fatalf("expected owner_id owner-1, got %v", got.OwnerID)
 	}
 }
