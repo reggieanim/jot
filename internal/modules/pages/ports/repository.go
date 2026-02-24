@@ -14,7 +14,12 @@ type PageRepository interface {
 	UpdatePageMetaOptimistic(ctx context.Context, pageID domain.PageID, title string, cover *string, darkMode bool, cinematic bool, mood int, bgColor string, expectedUpdatedAt *time.Time) error
 	SetPublished(ctx context.Context, pageID domain.PageID, published bool) error
 	GetByID(ctx context.Context, pageID domain.PageID) (domain.Page, error)
-	ListPages(ctx context.Context) ([]domain.Page, error)
+	ListPages(ctx context.Context, ownerID string) ([]domain.Page, error)
+	ListPublishedPagesByOwner(ctx context.Context, ownerID string) ([]domain.Page, error)
+	DeletePage(ctx context.Context, pageID domain.PageID) error
+	ArchivePage(ctx context.Context, pageID domain.PageID) error
+	RestorePage(ctx context.Context, pageID domain.PageID) error
+	ListArchivedPages(ctx context.Context, ownerID string) ([]domain.Page, error)
 	CreateProofread(ctx context.Context, proofread domain.Proofread) error
 	ListProofreadsByPageID(ctx context.Context, pageID domain.PageID) ([]domain.Proofread, error)
 	GetProofreadByID(ctx context.Context, proofreadID domain.ProofreadID) (domain.Proofread, error)

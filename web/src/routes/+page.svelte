@@ -3,13 +3,17 @@
 	import { env } from '$env/dynamic/public';
 	import { onMount } from 'svelte';
 	import type { ApiPage } from '$lib/editor/types';
+	import { user, authLoading, logout } from '$lib/stores/auth';
 
 	const apiUrl = env.PUBLIC_API_URL || 'http://localhost:8080';
 
 	let pages: ApiPage[] = [];
+	let archivedPages: ApiPage[] = [];
 	let loading = true;
 	let error = '';
 	let pageIdInput = '';
+	let showArchived = false;
+	let confirmDeleteId: string | null = null;
 
 	/** Per-card cinematic tint extracted from cover image */
 	let cardTints: Record<string, { bg: string; border: string; shadow: string; muted: string }> = {};
@@ -91,10 +95,18 @@
 
 	onMount(async () => {
 		try {
-			const res = await fetch(`${apiUrl}/v1/pages`);
-			if (!res.ok) throw new Error('Failed to load pages');
-			const payload = await res.json();
+			const [pagesRes, archivedRes] = await Promise.all([
+				fetch(`${apiUrl}/v1/pages`, { credentials: 'include' }),
+				fetch(`${apiUrl}/v1/pages/archived`, { credentials: 'include' })
+			]);
+			if (!pagesRes.ok) throw new Error('Failed to load pages');
+			const payload = await pagesRes.json();
 			pages = payload?.items ?? [];
+
+			if (archivedRes.ok) {
+				const archivedPayload = await archivedRes.json();
+				archivedPages = archivedPayload?.items ?? [];
+			}
 
 			/* extract cover tints for cinematic pages */
 			for (const page of pages) {
@@ -108,6 +120,42 @@
 			loading = false;
 		}
 	});
+
+	async function archivePage(pageId: string) {
+		try {
+			const res = await fetch(`${apiUrl}/v1/pages/${encodeURIComponent(pageId)}/archive`, { method: 'PUT', credentials: 'include' });
+			if (!res.ok) throw new Error('Failed to archive page');
+			const page = pages.find(p => p.id === pageId);
+			if (page) archivedPages = [page, ...archivedPages];
+			pages = pages.filter(p => p.id !== pageId);
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Archive failed');
+		}
+	}
+
+	async function restorePage(pageId: string) {
+		try {
+			const res = await fetch(`${apiUrl}/v1/pages/${encodeURIComponent(pageId)}/restore`, { method: 'PUT', credentials: 'include' });
+			if (!res.ok) throw new Error('Failed to restore page');
+			const page = archivedPages.find(p => p.id === pageId);
+			if (page) pages = [page, ...pages];
+			archivedPages = archivedPages.filter(p => p.id !== pageId);
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Restore failed');
+		}
+	}
+
+	async function deletePage(pageId: string) {
+		try {
+			const res = await fetch(`${apiUrl}/v1/pages/${encodeURIComponent(pageId)}`, { method: 'DELETE', credentials: 'include' });
+			if (!res.ok) throw new Error('Failed to delete page');
+			pages = pages.filter(p => p.id !== pageId);
+			archivedPages = archivedPages.filter(p => p.id !== pageId);
+			confirmDeleteId = null;
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Delete failed');
+		}
+	}
 
 	async function openPageById(e: SubmitEvent) {
 		e.preventDefault();
@@ -158,6 +206,147 @@
 	$: drafts = pages.filter((p) => !p.published);
 </script>
 
+{#if $authLoading}
+	<div class="landing-loading">
+		<div class="landing-spinner"></div>
+	</div>
+{:else if !$user}
+<!-- ═══════════════ LANDING PAGE ═══════════════ -->
+<div class="landing">
+	<!-- NAV -->
+	<header class="landing-nav">
+		<a href="/" class="landing-brand">Jot.</a>
+		<nav class="landing-nav-links">
+			<a href="/login">Log in</a>
+			<a href="/signup" class="landing-nav-cta">Try it free</a>
+		</nav>
+	</header>
+
+	<!-- HERO BENTO GRID -->
+	<section class="bento">
+		<!-- Card 1: Hero statement -->
+		<div class="bento-card bento-hero">
+			<div class="bento-card-top">
+				<span class="bento-label">A TINY WRITING TOOL</span>
+				<span class="bento-label">PAGE (N°001)</span>
+			</div>
+			<span class="bento-page-num">01</span>
+			<div class="bento-dots"><span class="dot filled"></span><span class="dot"></span></div>
+			<h1 class="bento-headline">
+				Just start<br/>
+				<em>writing</em> —<br/>
+				we'll handle the rest.
+			</h1>
+			<span class="bento-tm">™</span>
+			<span class="bento-year">©2026</span>
+			<p class="bento-sub">
+				A simple block editor for drafting,<br/>
+				publishing, and sharing your thoughts.<br/>
+				No fuss. Just words.
+			</p>
+		</div>
+
+		<!-- Card 2: Year overview / stats -->
+		<div class="bento-card bento-stats">
+			<div class="bento-card-top">
+				<span class="bento-label">THE GOOD STUFF</span>
+				<span class="bento-label">PAGE (N°002)</span>
+			</div>
+			<div class="bento-stats-year">
+				<span class="big-year">2026</span>
+				<a href="/signup" class="arrow-btn" aria-label="Get started">→</a>
+				<span class="big-year-suffix">in Numbers</span>
+			</div>
+			<div class="bento-dots"><span class="dot filled"></span><span class="dot"></span></div>
+			<span class="bento-growth-label">BUILT FOR FUN. STAYED<br/>BECAUSE IT ACTUALLY WORKS.</span>
+			<div class="bento-metrics-row">
+				<div class="bento-metric">
+					<span class="metric-value">∞</span>
+					<span class="metric-divider"></span>
+					<span class="metric-label">BLOCKS PER PAGE</span>
+					<span class="metric-desc">Text, images, embeds, galleries —<br/>mix and match however you like.</span>
+				</div>
+				<div class="bento-metric">
+					<span class="metric-value">8.4<span class="metric-unit">s</span></span>
+					<span class="metric-divider"></span>
+					<span class="metric-label">AVG. TIME TO PUBLISH</span>
+					<span class="metric-desc">Hit publish and you're live.<br/>Seriously, that's it.</span>
+				</div>
+			</div>
+		</div>
+
+		<!-- Card 3: Features / Conference style -->
+		<div class="bento-card bento-features dark-card">
+			<div class="bento-card-top">
+				<span class="bento-label light">FEATURES</span>
+				<span class="bento-label light">©2026</span>
+			</div>
+			<h2 class="bento-features-headline">
+				A pet project<br/>
+				that got<br/>
+				<em>a little</em> —<br/>
+				out of<br/>
+				hand.
+			</h2>
+			<div class="bento-features-meta">
+				<div class="sound-wave" aria-hidden="true">
+					{#each Array(24) as _, i}
+						<span class="wave-bar" style="--h:{12 + Math.sin(i * 0.7) * 10 + Math.random() * 6}px"></span>
+					{/each}
+				</div>
+				<div class="features-info">
+					<span class="globe-icon">⊕</span>
+					<span class="features-location">Works anywhere<br/>Open source<br/>Free forever</span>
+				</div>
+			</div>
+			<div class="bento-dots"><span class="dot filled light-dot"></span><span class="dot light-dot"></span></div>
+		</div>
+
+		<!-- Card 4: Solution / CTA -->
+		<div class="bento-card bento-solution">
+			<div class="bento-card-top">
+				<span class="bento-label">WHY THO</span>
+			</div>
+			<h2 class="bento-solution-headline">
+				Most writing tools get in the way.
+				<strong>Jot</strong> stays out of it —
+				just a clean editor, some <em>blocks</em>,
+				and a publish button.
+			</h2>
+			<div class="bento-solution-footer">
+				<a href="/signup" class="bento-cta-pill">Try it out</a>
+				<span class="dot filled"></span>
+				<span class="dot"></span>
+			</div>
+		</div>
+	</section>
+
+	<!-- BOTTOM STRIP -->
+	<section class="landing-bottom">
+		<div class="bottom-left">
+			<span class="bottom-num">04</span>
+		</div>
+		<div class="bottom-center">
+			<a href="/signup" class="bottom-arrow" aria-label="Sign up">→</a>
+		</div>
+		<div class="bottom-right">
+			<span class="bottom-big-year">2026</span>
+		</div>
+	</section>
+
+	<!-- FOOTER -->
+	<footer class="landing-footer">
+		<span class="landing-brand-sm">Jot.</span>
+		<span class="landing-copy">© 2026 Jot. All rights reserved.</span>
+		<nav class="landing-footer-links">
+			<a href="/login">Log in</a>
+			<a href="/signup">Sign up</a>
+		</nav>
+	</footer>
+</div>
+<!-- ═══════════════ END LANDING PAGE ═══════════════ -->
+
+{:else}
 <div class="dashboard">
 	<!-- NAV -->
 	<header class="nav">
@@ -166,16 +355,27 @@
 			<a href="/">Home.</a>
 			<a href="/editor">Editor.</a>
 		</nav>
-		<a class="nav-cta" href="/editor">+ New page</a>
+
+		<form class="open-form" on:submit={openPageById}>
+			<input type="text" placeholder="Paste page ID…" bind:value={pageIdInput} />
+			<button type="submit">→</button>
+		</form>
+
+		<div class="nav-right">
+			{#if $user}
+				<a class="nav-user" href="/user/{$user.username}">{$user.display_name || $user.username}</a>
+				<a class="nav-settings" href="/settings">⚙</a>
+				<button class="nav-logout" on:click={() => { logout(); goto('/login'); }}>Log out</button>
+			{:else if !$authLoading}
+				<a class="nav-cta" href="/login">Log in</a>
+			{/if}
+			<a class="nav-cta" href="/editor">+ New page</a>
+		</div>
 	</header>
 
 	<!-- HERO -->
 	<section class="hero">
 		<h1>Your Pages</h1>
-		<form class="open-form" on:submit={openPageById}>
-			<input type="text" placeholder="Open page by ID…" bind:value={pageIdInput} />
-			<button type="submit">Open →</button>
-		</form>
 	</section>
 
 	{#if loading}
@@ -185,7 +385,7 @@
 		</div>
 	{:else if error}
 		<div class="status error-text">{error}</div>
-	{:else if pages.length === 0}
+	{:else if pages.length === 0 && archivedPages.length === 0}
 		<div class="empty">
 			<div class="empty-icon">✎</div>
 			<p>No pages yet.</p>
@@ -220,6 +420,14 @@
 									<span><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4l10-10-4-4L4 16v4z" /><path d="M12 6l4 4" /></svg> {page.proofread_count ?? 0} proofreads</span>
 								</div>
 								<div class="card-meta"><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg> {formatDate(page.published_at || page.updated_at)}</div>
+								<div class="card-actions">
+									<button type="button" class="card-action archive-action" on:click|preventDefault|stopPropagation={() => archivePage(page.id)} title="Archive">
+										<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+									</button>
+									<button type="button" class="card-action delete-action" on:click|preventDefault|stopPropagation={() => { confirmDeleteId = page.id; }} title="Delete">
+										<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+									</button>
+								</div>
 							</div>
 						</a>
 					{/each}
@@ -255,14 +463,75 @@
 									<span><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4l10-10-4-4L4 16v4z" /><path d="M12 6l4 4" /></svg> {page.proofread_count ?? 0} proofreads</span>
 								</div>
 								<div class="card-meta"><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg> {formatDate(page.updated_at)}</div>
+								<div class="card-actions">
+									<button type="button" class="card-action archive-action" on:click|preventDefault|stopPropagation={() => archivePage(page.id)} title="Archive">
+										<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+									</button>
+									<button type="button" class="card-action delete-action" on:click|preventDefault|stopPropagation={() => { confirmDeleteId = page.id; }} title="Delete">
+										<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+									</button>
+								</div>
 							</div>
 						</a>
 					{/each}
 				</div>
 			</section>
 		{/if}
+
+		<!-- Archived Section -->
+		{#if archivedPages.length > 0}
+			<section class="section archived-section">
+				<button type="button" class="section-toggle" on:click={() => showArchived = !showArchived}>
+					<h2 class="section-title" style="margin:0;border:none;padding:0;">Archived <span class="archived-count">{archivedPages.length}</span></h2>
+					<span class="toggle-chevron" class:open={showArchived}>▸</span>
+				</button>
+				{#if showArchived}
+					<div class="masonry" style="margin-top:16px;">
+						{#each archivedPages as page (page.id)}
+							<div class="card archived-card">
+								<div class="card-visual archived-visual" style={`background:${patternFor(page)}`}>
+									<div class="card-default-icon">📦</div>
+								</div>
+								<div class="card-body">
+									<div class="card-top-row">
+										<span class="card-tag archived-tag">Archived</span>
+									</div>
+									<h3 class="card-title">{page.title || 'Untitled'}</h3>
+									<div class="card-meta"><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg> {formatDate(page.deleted_at || page.updated_at)}</div>
+									<div class="card-actions">
+										<button type="button" class="card-action restore-action" on:click|stopPropagation={() => restorePage(page.id)} title="Restore">
+											<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+											Restore
+										</button>
+										<button type="button" class="card-action delete-action" on:click|stopPropagation={() => { confirmDeleteId = page.id; }} title="Delete permanently">
+											<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+											Delete
+										</button>
+									</div>
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</section>
+		{/if}
+	{/if}
+
+	<!-- Delete confirmation modal -->
+	{#if confirmDeleteId}
+		<div class="modal-overlay" on:click={() => { confirmDeleteId = null; }} on:keydown={(e) => e.key === 'Escape' && (confirmDeleteId = null)} role="dialog" aria-modal="true" tabindex="-1">
+			<div class="modal-card" on:click|stopPropagation role="document">
+				<h3 class="modal-title">Delete this page?</h3>
+				<p class="modal-text">This action is <strong>permanent</strong> and cannot be undone. All blocks and proofreads will be deleted.</p>
+				<div class="modal-actions">
+					<button type="button" class="modal-btn modal-cancel" on:click={() => { confirmDeleteId = null; }}>Cancel</button>
+					<button type="button" class="modal-btn modal-delete" on:click={() => confirmDeleteId && deletePage(confirmDeleteId)}>Delete permanently</button>
+				</div>
+			</div>
+		</div>
 	{/if}
 </div>
+{/if}
 
 <style>
 	:global(body) {
@@ -317,13 +586,58 @@
 		color: #fff;
 		background: #1a1a1a;
 		padding: 8px 18px;
+		border: 2px solid #1a1a1a;
 		border-radius: 6px;
 		text-decoration: none;
-		transition: background 0.15s;
+		box-shadow: 3px 3px 0 #1a1a1a;
+		transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
 	}
 
 	.nav-cta:hover {
 		background: #333;
+		transform: translateY(-1px);
+		box-shadow: 4px 4px 0 #1a1a1a;
+	}
+
+	.nav-right {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+	.nav-user {
+		font-size: 14px;
+		font-weight: 600;
+		color: #1a1a1a;
+		text-decoration: none;
+	}
+	.nav-user:hover {
+		text-decoration: underline;
+	}
+	.nav-settings {
+		font-size: 16px;
+		text-decoration: none;
+		color: #1a1a1a;
+		opacity: 0.5;
+		transition: opacity 0.15s;
+	}
+	.nav-settings:hover {
+		opacity: 1;
+	}
+	.nav-logout {
+		font-family: inherit;
+		font-size: 13px;
+		font-weight: 600;
+		color: #1a1a1a;
+		background: none;
+		border: 2px solid #1a1a1a;
+		padding: 5px 12px;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s;
+	}
+	.nav-logout:hover {
+		background: #1a1a1a;
+		color: #faf9f7;
 	}
 
 	/* ---- HERO ---- */
@@ -347,34 +661,44 @@
 	.open-form {
 		display: flex;
 		gap: 0;
+		align-items: center;
 	}
 
 	.open-form input {
-		padding: 10px 14px;
+		padding: 6px 12px;
 		border: 2px solid #1a1a1a;
 		border-right: none;
 		border-radius: 6px 0 0 6px;
 		background: #fff;
-		font-size: 14px;
+		font-size: 12px;
+		font-family: inherit;
 		outline: none;
-		min-width: 200px;
+		width: 140px;
+		transition: width 0.2s, box-shadow 0.15s;
+	}
+
+	.open-form input:focus {
+		width: 200px;
+		box-shadow: 3px 3px 0 #1a1a1a;
 	}
 
 	.open-form input::placeholder {
-		color: #999;
+		color: #aaa;
+		font-size: 11px;
 	}
 
 	.open-form button {
-		padding: 10px 18px;
+		padding: 6px 10px;
 		border: 2px solid #1a1a1a;
 		border-radius: 0 6px 6px 0;
 		background: #1a1a1a;
 		color: #fff;
-		font-size: 14px;
-		font-weight: 600;
+		font-size: 13px;
+		font-weight: 700;
 		cursor: pointer;
 		white-space: nowrap;
 		transition: background 0.15s;
+		line-height: 1;
 	}
 
 	.open-form button:hover {
@@ -790,6 +1114,224 @@
 		background: color-mix(in srgb, var(--card-user-bg) 80%, #000 20%);
 	}
 
+	/* ---- CARD ACTIONS ---- */
+	.card-actions {
+		display: flex;
+		gap: 6px;
+		margin-top: 6px;
+		opacity: 0;
+		transition: opacity 0.15s;
+	}
+
+	.card:hover .card-actions {
+		opacity: 1;
+	}
+
+	.card-action {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 11px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		padding: 3px 8px;
+		border: 2px solid #ddd;
+		border-radius: 4px;
+		background: transparent;
+		color: #888;
+		cursor: pointer;
+		transition: all 0.12s;
+	}
+
+	.card-action svg {
+		width: 13px;
+		height: 13px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+
+	.archive-action:hover {
+		border-color: #f59e0b;
+		color: #b45309;
+		background: #fffbeb;
+	}
+
+	.delete-action:hover {
+		border-color: #ef4444;
+		color: #dc2626;
+		background: #fef2f2;
+	}
+
+	.restore-action:hover {
+		border-color: #22c55e;
+		color: #16a34a;
+		background: #f0fdf4;
+	}
+
+	/* Dark card action overrides */
+	.card.dark .card-action {
+		border-color: #444;
+		color: #777;
+	}
+
+	.card.dark .archive-action:hover {
+		border-color: #f59e0b;
+		color: #fbbf24;
+		background: rgba(245, 158, 11, 0.1);
+	}
+
+	.card.dark .delete-action:hover {
+		border-color: #ef4444;
+		color: #f87171;
+		background: rgba(239, 68, 68, 0.1);
+	}
+
+	/* ---- ARCHIVED SECTION ---- */
+	.archived-section {
+		margin-top: 40px;
+		border-top: 1px dashed #ccc;
+		padding-top: 20px;
+	}
+
+	.section-toggle {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0;
+		text-align: left;
+	}
+
+	.toggle-chevron {
+		font-size: 14px;
+		color: #888;
+		transition: transform 0.2s ease;
+		display: inline-block;
+	}
+
+	.toggle-chevron.open {
+		transform: rotate(90deg);
+	}
+
+	.archived-count {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 18px;
+		height: 18px;
+		padding: 0 5px;
+		border-radius: 9px;
+		background: #e0e0dc;
+		color: #888;
+		font-size: 11px;
+		font-weight: 800;
+		margin-left: 4px;
+		vertical-align: middle;
+	}
+
+	.archived-card {
+		border-style: dashed;
+		border-color: #ccc;
+		opacity: 0.75;
+		transition: opacity 0.15s, transform 0.12s, box-shadow 0.12s;
+	}
+
+	.archived-card:hover {
+		opacity: 1;
+	}
+
+	.archived-visual {
+		min-height: 80px !important;
+	}
+
+	.archived-tag {
+		background: #888 !important;
+	}
+
+	.archived-card .card-actions {
+		opacity: 1;
+	}
+
+	/* ---- DELETE MODAL ---- */
+	.modal-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.45);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 9999;
+		padding: 20px;
+	}
+
+	.modal-card {
+		background: #fff;
+		border: 2px solid #1a1a1a;
+		border-radius: 10px;
+		box-shadow: 8px 8px 0 #1a1a1a;
+		padding: 28px 32px;
+		max-width: 420px;
+		width: 100%;
+	}
+
+	.modal-title {
+		font-size: 20px;
+		font-weight: 800;
+		letter-spacing: -0.02em;
+		margin: 0 0 10px;
+	}
+
+	.modal-text {
+		font-size: 14px;
+		color: #555;
+		line-height: 1.5;
+		margin: 0 0 24px;
+	}
+
+	.modal-actions {
+		display: flex;
+		gap: 10px;
+		justify-content: flex-end;
+	}
+
+	.modal-btn {
+		font-size: 13px;
+		font-weight: 700;
+		padding: 8px 18px;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.12s;
+	}
+
+	.modal-cancel {
+		background: #fff;
+		border: 2px solid #ddd;
+		color: #555;
+	}
+
+	.modal-cancel:hover {
+		border-color: #1a1a1a;
+		color: #1a1a1a;
+	}
+
+	.modal-delete {
+		background: #dc2626;
+		border: 2px solid #dc2626;
+		color: #fff;
+	}
+
+	.modal-delete:hover {
+		background: #b91c1c;
+		border-color: #b91c1c;
+	}
+
 	/* ---- RESPONSIVE ---- */
 	@media (max-width: 900px) {
 		.masonry {
@@ -815,12 +1357,540 @@
 		}
 
 		.open-form {
-			width: 100%;
+			display: none;
 		}
 
-		.open-form input {
-			min-width: 0;
-			flex: 1;
+		.card-actions {
+			opacity: 1;
+		}
+
+		.modal-card {
+			padding: 22px 20px;
+		}
+	}
+
+	/* ═══════════════════════════════════════════════
+	   LANDING PAGE
+	   ═══════════════════════════════════════════════ */
+
+	.landing-loading {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 100vh;
+		background: #f5f5f3;
+	}
+	.landing-spinner {
+		width: 28px; height: 28px;
+		border: 3px solid #e0dfdc;
+		border-top-color: #1a1a1a;
+		border-radius: 50%;
+		animation: spin .7s linear infinite;
+	}
+
+	.landing {
+		background: #f5f5f3;
+		min-height: 100vh;
+		color: #1a1a1a;
+	}
+
+	/* ---- NAV ---- */
+	.landing-nav {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 18px 32px;
+		border-bottom: 2px solid #1a1a1a;
+		background: #faf9f7;
+	}
+	.landing-brand {
+		font-size: 1.6rem;
+		font-weight: 900;
+		color: #1a1a1a;
+		text-decoration: none;
+		letter-spacing: -0.04em;
+	}
+	.landing-nav-links {
+		display: flex;
+		align-items: center;
+		gap: 20px;
+	}
+	.landing-nav-links a {
+		color: #1a1a1a;
+		text-decoration: none;
+		font-weight: 600;
+		font-size: .9rem;
+		transition: opacity .15s;
+	}
+	.landing-nav-links a:hover { opacity: 0.5; }
+	.landing-nav-cta {
+		background: #1a1a1a !important;
+		color: #fff !important;
+		padding: 8px 22px;
+		border: 2px solid #1a1a1a !important;
+		font-weight: 700 !important;
+		font-size: .85rem !important;
+		letter-spacing: .02em;
+		box-shadow: 3px 3px 0 #1a1a1a;
+		transition: background .15s, transform .15s, box-shadow .15s !important;
+	}
+	.landing-nav-cta:hover {
+		background: #333 !important;
+		transform: translateY(-1px);
+		box-shadow: 4px 4px 0 #1a1a1a;
+	}
+
+	/* ---- BENTO GRID ---- */
+	.bento {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 20px;
+		padding: 24px 32px;
+	}
+
+	.bento-card {
+		background: #fff;
+		color: #1a1a1a;
+		padding: 36px 40px;
+		position: relative;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		border: 2px solid #1a1a1a;
+		border-radius: 12px;
+		box-shadow: 8px 8px 0 #1a1a1a;
+		transition: transform .2s, box-shadow .2s;
+	}
+	.bento-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 10px 10px 0 #1a1a1a;
+	}
+	.bento-card.dark-card {
+		background: #1a1a1a;
+		color: #faf9f7;
+		border-color: #1a1a1a;
+		box-shadow: 8px 8px 0 #555;
+	}
+	.bento-card.dark-card:hover {
+		box-shadow: 10px 10px 0 #555;
+	}
+
+	.bento-card-top {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 20px;
+	}
+	.bento-label {
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: .12em;
+		text-transform: uppercase;
+		color: #888;
+	}
+	.bento-label.light { color: #777; }
+
+	.bento-dots {
+		display: flex;
+		gap: 6px;
+		margin: 12px 0;
+	}
+	.dot {
+		width: 8px; height: 8px;
+		border-radius: 50%;
+		border: 1.5px solid #1a1a1a;
+		background: transparent;
+	}
+	.dot.filled { background: #1a1a1a; }
+	.dot.light-dot { border-color: #666; }
+	.dot.filled.light-dot { background: #faf9f7; border-color: #faf9f7; }
+
+	/* ---- CARD 1: HERO ---- */
+	.bento-hero {
+		min-height: 420px;
+	}
+	.bento-page-num {
+		position: absolute;
+		top: 20px;
+		right: 40px;
+		font-size: clamp(64px, 8vw, 96px);
+		font-weight: 900;
+		letter-spacing: -0.06em;
+		color: #1a1a1a;
+		line-height: 1;
+	}
+	.bento-headline {
+		font-size: clamp(36px, 4.5vw, 56px);
+		font-weight: 900;
+		line-height: 1.05;
+		letter-spacing: -0.04em;
+		margin: auto 0 0 0;
+	}
+	.bento-headline em {
+		font-style: italic;
+		color: #1a1a1a;
+	}
+	.bento-tm {
+		position: absolute;
+		top: 200px;
+		right: 180px;
+		font-size: 13px;
+		font-weight: 600;
+		color: #1a1a1a;
+	}
+	.bento-year {
+		position: absolute;
+		bottom: 180px;
+		right: 40px;
+		font-size: 13px;
+		font-weight: 600;
+		color: #1a1a1a;
+	}
+	.bento-sub {
+		font-size: 11px;
+		line-height: 1.6;
+		color: #888;
+		text-transform: uppercase;
+		letter-spacing: .06em;
+		margin-top: 18px;
+	}
+
+	/* ---- CARD 2: STATS ---- */
+	.bento-stats {
+		min-height: 420px;
+	}
+	.bento-stats-year {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		margin-bottom: 4px;
+	}
+	.big-year {
+		font-size: clamp(40px, 5vw, 64px);
+		font-weight: 900;
+		letter-spacing: -0.04em;
+		line-height: 1;
+	}
+	.big-year-suffix {
+		font-size: clamp(36px, 4vw, 56px);
+		font-weight: 900;
+		letter-spacing: -0.04em;
+		line-height: 1;
+	}
+	.arrow-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px; height: 40px;
+		border-radius: 50%;
+		background: #1a1a1a;
+		color: #fff;
+		font-size: 18px;
+		font-weight: 700;
+		text-decoration: none;
+		border: 2px solid #1a1a1a;
+		box-shadow: 3px 3px 0 #1a1a1a;
+		transition: background .15s, transform .15s, box-shadow .15s;
+		flex-shrink: 0;
+	}
+	.arrow-btn:hover {
+		background: #333;
+		transform: translateY(-1px);
+		box-shadow: 4px 4px 0 #1a1a1a;
+	}
+
+	.bento-growth-label {
+		font-size: 9px;
+		font-weight: 700;
+		letter-spacing: .1em;
+		text-transform: uppercase;
+		color: #888;
+		line-height: 1.5;
+		margin: 12px 0 24px;
+	}
+
+	.bento-metrics-row {
+		display: flex;
+		gap: 32px;
+		margin-top: auto;
+	}
+	.bento-metric {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+	}
+	.metric-value {
+		font-size: clamp(48px, 6vw, 72px);
+		font-weight: 900;
+		letter-spacing: -0.04em;
+		color: #1a1a1a;
+		line-height: 1;
+	}
+	.metric-unit {
+		font-size: 0.5em;
+		font-weight: 700;
+	}
+	.metric-divider {
+		width: 40px;
+		height: 2px;
+		background: #1a1a1a;
+		margin: 10px 0;
+	}
+	.metric-label {
+		font-size: 9px;
+		font-weight: 700;
+		letter-spacing: .1em;
+		text-transform: uppercase;
+		color: #1a1a1a;
+		margin-bottom: 6px;
+	}
+	.metric-desc {
+		font-size: 10px;
+		line-height: 1.5;
+		color: #888;
+		text-transform: uppercase;
+		letter-spacing: .04em;
+	}
+
+	/* ---- CARD 3: FEATURES (DARK) ---- */
+	.bento-features {
+		min-height: 420px;
+	}
+	.bento-features-headline {
+		font-size: clamp(32px, 4vw, 50px);
+		font-weight: 900;
+		line-height: 1.08;
+		letter-spacing: -0.04em;
+		margin: 0;
+		flex: 1;
+	}
+	.bento-features-headline em {
+		font-style: italic;
+		color: #aaa;
+	}
+	.bento-features-meta {
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+		margin-top: 24px;
+		gap: 16px;
+	}
+	.sound-wave {
+		display: flex;
+		align-items: flex-end;
+		gap: 2px;
+		height: 32px;
+	}
+	.wave-bar {
+		display: block;
+		width: 3px;
+		height: var(--h, 14px);
+		background: #faf9f7;
+		border-radius: 1px;
+	}
+	.features-info {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
+	}
+	.globe-icon {
+		font-size: 24px;
+		color: #888;
+		line-height: 1;
+	}
+	.features-location {
+		font-size: 11px;
+		font-weight: 600;
+		color: #aaa;
+		line-height: 1.5;
+	}
+
+	/* ---- CARD 4: SOLUTION ---- */
+	.bento-solution {
+		min-height: 420px;
+		justify-content: center;
+	}
+	.bento-solution-headline {
+		font-size: clamp(28px, 3.5vw, 44px);
+		font-weight: 800;
+		line-height: 1.15;
+		letter-spacing: -0.03em;
+		margin: 0;
+	}
+	.bento-solution-headline em {
+		font-style: italic;
+		color: #1a1a1a;
+	}
+	.bento-solution-headline strong {
+		font-weight: 900;
+	}
+	.bento-solution-footer {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-top: 28px;
+	}
+	.bento-cta-pill {
+		display: inline-block;
+		padding: 10px 24px;
+		background: #1a1a1a;
+		color: #fff;
+		font-size: 12px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: .08em;
+		text-decoration: none;
+		border: 2px solid #1a1a1a;
+		border-radius: 6px;
+		box-shadow: 4px 4px 0 #1a1a1a;
+		transition: background .15s, transform .15s, box-shadow .15s;
+	}
+	.bento-cta-pill:hover {
+		background: #333;
+		transform: translateY(-1px);
+		box-shadow: 5px 5px 0 #1a1a1a;
+	}
+
+	/* ---- BOTTOM STRIP ---- */
+	.landing-bottom {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0 32px 24px;
+		gap: 20px;
+	}
+	.bottom-left, .bottom-center, .bottom-right {
+		background: #fff;
+		color: #1a1a1a;
+		padding: 24px 40px;
+		border: 2px solid #1a1a1a;
+		border-radius: 12px;
+		box-shadow: 6px 6px 0 #1a1a1a;
+	}
+	.bottom-left { flex: 0 0 auto; }
+	.bottom-center {
+		flex: 0 0 auto;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.bottom-right { flex: 1; text-align: right; }
+	.bottom-num {
+		font-size: clamp(48px, 6vw, 72px);
+		font-weight: 900;
+		letter-spacing: -0.04em;
+		color: #1a1a1a;
+	}
+	.bottom-arrow {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 44px; height: 44px;
+		border-radius: 50%;
+		background: #1a1a1a;
+		color: #fff;
+		font-size: 20px;
+		font-weight: 700;
+		text-decoration: none;
+		border: 2px solid #1a1a1a;
+		box-shadow: 3px 3px 0 #1a1a1a;
+		transition: background .15s, transform .15s, box-shadow .15s;
+	}
+	.bottom-arrow:hover {
+		background: #333;
+		transform: translateY(-1px);
+		box-shadow: 4px 4px 0 #1a1a1a;
+	}
+	.bottom-big-year {
+		font-size: clamp(60px, 8vw, 100px);
+		font-weight: 900;
+		letter-spacing: -0.05em;
+		color: #1a1a1a;
+		line-height: 1;
+	}
+
+	/* ---- FOOTER ---- */
+	.landing-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 20px 32px;
+		border-top: 2px solid #1a1a1a;
+		color: #888;
+		font-size: .8rem;
+		background: #faf9f7;
+	}
+	.landing-brand-sm {
+		font-size: 1.1rem;
+		font-weight: 800;
+		color: #1a1a1a;
+		letter-spacing: -0.04em;
+	}
+	.landing-copy {
+		color: #888;
+	}
+	.landing-footer-links {
+		display: flex;
+		gap: 16px;
+	}
+	.landing-footer-links a {
+		color: #1a1a1a;
+		text-decoration: none;
+		font-weight: 600;
+		transition: opacity .15s;
+	}
+	.landing-footer-links a:hover { opacity: 0.5; }
+
+	/* ---- LANDING RESPONSIVE ---- */
+	@media (max-width: 800px) {
+		.bento {
+			grid-template-columns: 1fr;
+			padding: 16px;
+			gap: 16px;
+		}
+		.bento-hero, .bento-stats, .bento-features, .bento-solution {
+			min-height: 360px;
+		}
+		.bento-page-num {
+			font-size: 56px;
+			right: 24px;
+		}
+		.bento-card {
+			padding: 28px 24px;
+			box-shadow: 6px 6px 0 #1a1a1a;
+		}
+		.bento-card.dark-card {
+			box-shadow: 6px 6px 0 #555;
+		}
+		.bento-card:hover {
+			transform: none;
+			box-shadow: 6px 6px 0 #1a1a1a;
+		}
+		.bento-card.dark-card:hover {
+			box-shadow: 6px 6px 0 #555;
+		}
+		.bento-metrics-row {
+			flex-direction: column;
+			gap: 20px;
+		}
+		.bento-tm { display: none; }
+		.bento-year { right: 24px; bottom: 120px; }
+		.landing-nav { padding: 14px 20px; }
+		.landing-bottom {
+			flex-direction: column;
+			padding: 0 16px 16px;
+			gap: 16px;
+		}
+		.bottom-left, .bottom-center, .bottom-right {
+			width: 100%;
+			box-sizing: border-box;
+			text-align: center;
+			box-shadow: 4px 4px 0 #1a1a1a;
+		}
+		.landing-footer {
+			flex-direction: column;
+			gap: 12px;
+			text-align: center;
 		}
 	}
 </style>

@@ -19,6 +19,7 @@ export type ApiPage = {
 	proofread_count?: number;
 	block_count?: number;
 	updated_at?: string;
+	deleted_at?: string;
 };
 
 export type ApiProofreadAnnotation = {

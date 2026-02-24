@@ -1030,7 +1030,7 @@
 			</div>
 		{:else if type === 'embed'}
 			{#if data?.url}
-				<figure class="media-figure">
+				<figure class="media-figure" on:dragover|preventDefault|stopPropagation={() => {}} on:drop={handleMediaDrop}>
 					<iframe src={data.url} class="embed-frame" title="Embedded content"></iframe>
 					<figcaption class="media-caption">
 						<input

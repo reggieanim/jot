@@ -19,8 +19,10 @@ func NewRouter(corsOrigins string) *gin.Engine {
 
 	router := gin.New()
 	router.Use(cors.New(cors.Config{
-		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Set-Cookie"},
+		AllowCredentials: true,
 		AllowOriginFunc: func(origin string) bool {
 			return allowed[strings.ToLower(strings.TrimSpace(origin))]
 		},

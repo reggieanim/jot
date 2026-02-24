@@ -13,6 +13,7 @@ import (
 	jnats "github.com/nats-io/nats.go"
 	"github.com/reggieanim/jot/internal/modules/pages/app"
 	"github.com/reggieanim/jot/internal/modules/pages/domain"
+	"github.com/reggieanim/jot/internal/platform/auth"
 	"github.com/reggieanim/jot/internal/platform/storage"
 	"github.com/reggieanim/jot/internal/shared/errs"
 	"go.uber.org/zap"
@@ -109,29 +110,85 @@ type publishPresenceRequest struct {
 	IsOnline  bool   `json:"is_online"`
 }
 
-func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, subject string, logger *zap.Logger, media storage.MediaStore) {
+func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, subject string, logger *zap.Logger, media storage.MediaStore, jwtIssuer *auth.JWTIssuer) {
 	handler := &Handler{service: service, logger: logger, conn: conn, subject: subject, media: media}
 	v1 := router.Group("/v1")
-	v1.POST("/media/images", handler.uploadImage)
-	v1.POST("/pages/:pageID/presence", handler.publishPresence)
-	v1.POST("/pages/:pageID/typing", handler.publishTyping)
-	v1.POST("/pages", handler.createPage)
-	v1.GET("/pages", handler.listPages)
-	v1.GET("/pages/:pageID", handler.getPage)
+
+	// Public endpoints (no auth required)
 	v1.GET("/public/pages/:pageID", handler.getPublicPage)
 	v1.GET("/public/pages/:pageID/blocks/:blockID", handler.getPublicBlock)
 	v1.GET("/public/pages/:pageID/proofreads", handler.listProofreads)
 	v1.POST("/public/pages/:pageID/proofreads", handler.createProofread)
 	v1.GET("/public/proofreads/:proofreadID", handler.getProofread)
+	v1.GET("/users/:userID/pages", handler.listPublishedPagesByUser)
+
+	// SSE + realtime (EventSource can't send cookies/headers)
 	v1.GET("/pages/:pageID/events", handler.subscribePageEvents)
-	v1.PUT("/pages/:pageID/blocks", handler.updateBlocks)
-	v1.PUT("/pages/:pageID/realtime-blocks", handler.updateBlocksRealtime)
-	v1.PUT("/pages/:pageID/meta", handler.updatePageMeta)
-	v1.PUT("/pages/:pageID/publish", handler.setPagePublished)
+
+	// Protected endpoints (require auth)
+	protected := v1.Group("")
+	protected.Use(auth.Middleware(jwtIssuer))
+	{
+		protected.POST("/media/images", handler.uploadImage)
+		protected.POST("/pages/:pageID/presence", handler.publishPresence)
+		protected.POST("/pages/:pageID/typing", handler.publishTyping)
+		protected.POST("/pages", handler.createPage)
+		protected.GET("/pages", handler.listPages)
+		protected.GET("/pages/archived", handler.listArchivedPages)
+		protected.GET("/pages/:pageID", handler.getPage)
+		protected.DELETE("/pages/:pageID", handler.deletePage)
+		protected.PUT("/pages/:pageID/archive", handler.archivePage)
+		protected.PUT("/pages/:pageID/restore", handler.restorePage)
+		protected.PUT("/pages/:pageID/blocks", handler.updateBlocks)
+		protected.PUT("/pages/:pageID/realtime-blocks", handler.updateBlocksRealtime)
+		protected.PUT("/pages/:pageID/meta", handler.updatePageMeta)
+		protected.PUT("/pages/:pageID/publish", handler.setPagePublished)
+	}
 }
 
 func (handler *Handler) listPages(ctx *gin.Context) {
-	pages, err := handler.service.ListPages(ctx.Request.Context())
+	uid, _ := auth.GetUserID(ctx)
+	pages, err := handler.service.ListPages(ctx.Request.Context(), string(uid))
+	if err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	ctx.JSON(200, gin.H{"items": pages})
+}
+
+func (handler *Handler) deletePage(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
+	pageID := domain.PageID(ctx.Param("pageID"))
+	if err := handler.service.DeletePage(ctx.Request.Context(), string(uid), pageID); err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	ctx.JSON(200, gin.H{"status": "deleted"})
+}
+
+func (handler *Handler) archivePage(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
+	pageID := domain.PageID(ctx.Param("pageID"))
+	if err := handler.service.ArchivePage(ctx.Request.Context(), string(uid), pageID); err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	ctx.JSON(200, gin.H{"status": "archived"})
+}
+
+func (handler *Handler) restorePage(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
+	pageID := domain.PageID(ctx.Param("pageID"))
+	if err := handler.service.RestorePage(ctx.Request.Context(), string(uid), pageID); err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	ctx.JSON(200, gin.H{"status": "restored"})
+}
+
+func (handler *Handler) listArchivedPages(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
+	pages, err := handler.service.ListArchivedPages(ctx.Request.Context(), string(uid))
 	if err != nil {
 		handler.handleError(ctx, err)
 		return
@@ -140,6 +197,7 @@ func (handler *Handler) listPages(ctx *gin.Context) {
 }
 
 func (handler *Handler) setPagePublished(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
 	pageID := domain.PageID(ctx.Param("pageID"))
 	var body publishPageRequest
 	if err := ctx.ShouldBindJSON(&body); err != nil {
@@ -147,7 +205,7 @@ func (handler *Handler) setPagePublished(ctx *gin.Context) {
 		return
 	}
 
-	page, err := handler.service.SetPagePublished(ctx.Request.Context(), pageID, body.Published)
+	page, err := handler.service.SetPagePublished(ctx.Request.Context(), string(uid), pageID, body.Published)
 	if err != nil {
 		handler.handleError(ctx, err)
 		return
@@ -493,6 +551,7 @@ func (handler *Handler) subscribePageEvents(ctx *gin.Context) {
 }
 
 func (handler *Handler) createPage(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
 	var body createPageRequest
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		ctx.JSON(400, gin.H{"error": "invalid json body"})
@@ -501,6 +560,7 @@ func (handler *Handler) createPage(ctx *gin.Context) {
 
 	page, err := handler.service.CreatePageWithSettings(
 		ctx.Request.Context(),
+		string(uid),
 		body.Title,
 		body.Cover,
 		body.Blocks,
@@ -518,10 +578,15 @@ func (handler *Handler) createPage(ctx *gin.Context) {
 }
 
 func (handler *Handler) getPage(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
 	pageID := domain.PageID(ctx.Param("pageID"))
 	page, err := handler.service.GetPage(ctx.Request.Context(), pageID)
 	if err != nil {
 		handler.handleError(ctx, err)
+		return
+	}
+	if page.OwnerID != string(uid) {
+		ctx.JSON(403, gin.H{"error": "forbidden"})
 		return
 	}
 
@@ -529,6 +594,7 @@ func (handler *Handler) getPage(ctx *gin.Context) {
 }
 
 func (handler *Handler) updateBlocks(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
 	pageID := domain.PageID(ctx.Param("pageID"))
 	var body updateBlocksRequest
 	if err := ctx.ShouldBindJSON(&body); err != nil {
@@ -536,7 +602,7 @@ func (handler *Handler) updateBlocks(ctx *gin.Context) {
 		return
 	}
 
-	if err := handler.service.UpdateBlocks(ctx.Request.Context(), pageID, body.Blocks); err != nil {
+	if err := handler.service.UpdateBlocks(ctx.Request.Context(), string(uid), pageID, body.Blocks); err != nil {
 		handler.handleError(ctx, err)
 		return
 	}
@@ -545,6 +611,7 @@ func (handler *Handler) updateBlocks(ctx *gin.Context) {
 }
 
 func (handler *Handler) updateBlocksRealtime(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
 	pageID := domain.PageID(ctx.Param("pageID"))
 	var body updateBlocksRealtimeRequest
 	if err := ctx.ShouldBindJSON(&body); err != nil {
@@ -562,7 +629,7 @@ func (handler *Handler) updateBlocksRealtime(ctx *gin.Context) {
 		expectedUpdatedAt = &parsed
 	}
 
-	page, err := handler.service.UpdateBlocksRealtime(ctx.Request.Context(), pageID, body.Blocks, expectedUpdatedAt)
+	page, err := handler.service.UpdateBlocksRealtime(ctx.Request.Context(), string(uid), pageID, body.Blocks, expectedUpdatedAt)
 	if err != nil {
 		if errors.Is(err, errs.ErrConflict) {
 			latest, getErr := handler.service.GetPage(ctx.Request.Context(), pageID)
@@ -581,6 +648,7 @@ func (handler *Handler) updateBlocksRealtime(ctx *gin.Context) {
 }
 
 func (handler *Handler) updatePageMeta(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
 	pageID := domain.PageID(ctx.Param("pageID"))
 	var body updatePageMetaRequest
 	if err := ctx.ShouldBindJSON(&body); err != nil {
@@ -598,7 +666,7 @@ func (handler *Handler) updatePageMeta(ctx *gin.Context) {
 		expectedUpdatedAt = &parsed
 	}
 
-	page, err := handler.service.UpdatePageMetaRealtime(ctx.Request.Context(), pageID, body.Title, body.Cover, body.DarkMode, body.Cinematic, body.Mood, body.BgColor, expectedUpdatedAt)
+	page, err := handler.service.UpdatePageMetaRealtime(ctx.Request.Context(), string(uid), pageID, body.Title, body.Cover, body.DarkMode, body.Cinematic, body.Mood, body.BgColor, expectedUpdatedAt)
 	if err != nil {
 		if errors.Is(err, errs.ErrConflict) {
 			latest, getErr := handler.service.GetPage(ctx.Request.Context(), pageID)
@@ -616,12 +684,28 @@ func (handler *Handler) updatePageMeta(ctx *gin.Context) {
 	ctx.JSON(200, gin.H{"status": "updated", "page": page})
 }
 
+func (handler *Handler) listPublishedPagesByUser(ctx *gin.Context) {
+	userID := ctx.Param("userID")
+	if userID == "" {
+		ctx.JSON(400, gin.H{"error": "userID is required"})
+		return
+	}
+	pages, err := handler.service.ListPublishedPagesByOwner(ctx.Request.Context(), userID)
+	if err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	ctx.JSON(200, gin.H{"items": pages})
+}
+
 func (handler *Handler) handleError(ctx *gin.Context, err error) {
 	handler.logger.Warn("request failed", zap.Error(err))
 
 	switch {
 	case errors.Is(err, errs.ErrInvalidInput):
 		ctx.JSON(400, gin.H{"error": err.Error()})
+	case errors.Is(err, errs.ErrForbidden):
+		ctx.JSON(403, gin.H{"error": "forbidden"})
 	case errors.Is(err, errs.ErrConflict):
 		ctx.JSON(409, gin.H{"error": err.Error()})
 	case errors.Is(err, errs.ErrNotFound):

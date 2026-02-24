@@ -26,12 +26,13 @@ func NewService(repo ports.PageRepository, events ports.PageEvents, clock Clock)
 	return &Service{repo: repo, events: events, clock: clock}
 }
 
-func (service *Service) CreatePage(ctx context.Context, title string, cover *string, blocks []domain.Block) (domain.Page, error) {
-	return service.CreatePageWithSettings(ctx, title, cover, blocks, false, true, 65, "")
+func (service *Service) CreatePage(ctx context.Context, ownerID string, title string, cover *string, blocks []domain.Block) (domain.Page, error) {
+	return service.CreatePageWithSettings(ctx, ownerID, title, cover, blocks, false, true, 65, "")
 }
 
 func (service *Service) CreatePageWithSettings(
 	ctx context.Context,
+	ownerID string,
 	title string,
 	cover *string,
 	blocks []domain.Block,
@@ -40,7 +41,7 @@ func (service *Service) CreatePageWithSettings(
 	mood int,
 	bgColor string,
 ) (domain.Page, error) {
-	if title == "" {
+	if ownerID == "" || title == "" {
 		return domain.Page{}, errs.ErrInvalidInput
 	}
 	if mood < 0 {
@@ -52,6 +53,7 @@ func (service *Service) CreatePageWithSettings(
 	now := service.clock.Now()
 	page := domain.Page{
 		ID:        domain.PageID(uuid.NewString()),
+		OwnerID:   ownerID,
 		Title:     title,
 		Cover:     cover,
 		Published: false,
@@ -76,14 +78,17 @@ func (service *Service) CreatePageWithSettings(
 	return persisted, nil
 }
 
-func (service *Service) UpdateBlocks(ctx context.Context, pageID domain.PageID, blocks []domain.Block) error {
-	_, err := service.UpdateBlocksRealtime(ctx, pageID, blocks, nil)
+func (service *Service) UpdateBlocks(ctx context.Context, ownerID string, pageID domain.PageID, blocks []domain.Block) error {
+	_, err := service.UpdateBlocksRealtime(ctx, ownerID, pageID, blocks, nil)
 	return err
 }
 
-func (service *Service) UpdateBlocksRealtime(ctx context.Context, pageID domain.PageID, blocks []domain.Block, expectedUpdatedAt *time.Time) (domain.Page, error) {
+func (service *Service) UpdateBlocksRealtime(ctx context.Context, ownerID string, pageID domain.PageID, blocks []domain.Block, expectedUpdatedAt *time.Time) (domain.Page, error) {
 	if pageID == "" {
 		return domain.Page{}, errs.ErrInvalidInput
+	}
+	if err := service.checkOwnership(ctx, pageID, ownerID); err != nil {
+		return domain.Page{}, err
 	}
 	if err := service.repo.UpdateBlocksOptimistic(ctx, pageID, blocks, expectedUpdatedAt); err != nil {
 		return domain.Page{}, fmt.Errorf("update blocks: %w", err)
@@ -98,9 +103,12 @@ func (service *Service) UpdateBlocksRealtime(ctx context.Context, pageID domain.
 	return page, nil
 }
 
-func (service *Service) UpdatePageMetaRealtime(ctx context.Context, pageID domain.PageID, title string, cover *string, darkMode bool, cinematic bool, mood int, bgColor string, expectedUpdatedAt *time.Time) (domain.Page, error) {
+func (service *Service) UpdatePageMetaRealtime(ctx context.Context, ownerID string, pageID domain.PageID, title string, cover *string, darkMode bool, cinematic bool, mood int, bgColor string, expectedUpdatedAt *time.Time) (domain.Page, error) {
 	if pageID == "" || title == "" {
 		return domain.Page{}, errs.ErrInvalidInput
+	}
+	if err := service.checkOwnership(ctx, pageID, ownerID); err != nil {
+		return domain.Page{}, err
 	}
 	if mood < 0 {
 		mood = 0
@@ -135,9 +143,12 @@ func (service *Service) GetPage(ctx context.Context, pageID domain.PageID) (doma
 	return page, nil
 }
 
-func (service *Service) SetPagePublished(ctx context.Context, pageID domain.PageID, published bool) (domain.Page, error) {
+func (service *Service) SetPagePublished(ctx context.Context, ownerID string, pageID domain.PageID, published bool) (domain.Page, error) {
 	if pageID == "" {
 		return domain.Page{}, errs.ErrInvalidInput
+	}
+	if err := service.checkOwnership(ctx, pageID, ownerID); err != nil {
+		return domain.Page{}, err
 	}
 	if err := service.repo.SetPublished(ctx, pageID, published); err != nil {
 		return domain.Page{}, fmt.Errorf("set page published: %w", err)
@@ -152,12 +163,95 @@ func (service *Service) SetPagePublished(ctx context.Context, pageID domain.Page
 	return page, nil
 }
 
-func (service *Service) ListPages(ctx context.Context) ([]domain.Page, error) {
-	pages, err := service.repo.ListPages(ctx)
+func (service *Service) ListPages(ctx context.Context, ownerID string) ([]domain.Page, error) {
+	pages, err := service.repo.ListPages(ctx, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("list pages: %w", err)
 	}
 	return pages, nil
+}
+
+func (service *Service) DeletePage(ctx context.Context, ownerID string, pageID domain.PageID) error {
+	if pageID == "" {
+		return errs.ErrInvalidInput
+	}
+
+	// Fetch full page (with blocks) before deletion so we can emit an event
+	// carrying the media URLs for downstream cleanup.
+	page, err := service.repo.GetByID(ctx, pageID)
+	if err != nil {
+		return fmt.Errorf("get page for delete: %w", err)
+	}
+	if page.OwnerID != ownerID {
+		return errs.ErrForbidden
+	}
+
+	if err := service.repo.DeletePage(ctx, pageID); err != nil {
+		return fmt.Errorf("delete page: %w", err)
+	}
+
+	// Best-effort: emit event so the files module can clean up S3 objects.
+	_ = service.events.PageDeleted(ctx, page)
+
+	return nil
+}
+
+func (service *Service) ArchivePage(ctx context.Context, ownerID string, pageID domain.PageID) error {
+	if pageID == "" {
+		return errs.ErrInvalidInput
+	}
+	if err := service.checkOwnership(ctx, pageID, ownerID); err != nil {
+		return err
+	}
+	if err := service.repo.ArchivePage(ctx, pageID); err != nil {
+		return fmt.Errorf("archive page: %w", err)
+	}
+	return nil
+}
+
+func (service *Service) RestorePage(ctx context.Context, ownerID string, pageID domain.PageID) error {
+	if pageID == "" {
+		return errs.ErrInvalidInput
+	}
+	// For restore, the page has deleted_at set, so we look it up and check owner
+	page, err := service.repo.GetByID(ctx, pageID)
+	if err != nil {
+		return fmt.Errorf("get page for restore: %w", err)
+	}
+	if page.OwnerID != ownerID {
+		return errs.ErrForbidden
+	}
+	if err := service.repo.RestorePage(ctx, pageID); err != nil {
+		return fmt.Errorf("restore page: %w", err)
+	}
+	return nil
+}
+
+func (service *Service) ListArchivedPages(ctx context.Context, ownerID string) ([]domain.Page, error) {
+	pages, err := service.repo.ListArchivedPages(ctx, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("list archived pages: %w", err)
+	}
+	return pages, nil
+}
+
+func (service *Service) ListPublishedPagesByOwner(ctx context.Context, ownerID string) ([]domain.Page, error) {
+	pages, err := service.repo.ListPublishedPagesByOwner(ctx, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("list published pages by owner: %w", err)
+	}
+	return pages, nil
+}
+
+func (service *Service) checkOwnership(ctx context.Context, pageID domain.PageID, ownerID string) error {
+	page, err := service.repo.GetByID(ctx, pageID)
+	if err != nil {
+		return fmt.Errorf("check ownership: %w", err)
+	}
+	if page.OwnerID != ownerID {
+		return errs.ErrForbidden
+	}
+	return nil
 }
 
 func (service *Service) GetPublicPage(ctx context.Context, pageID domain.PageID) (domain.Page, error) {

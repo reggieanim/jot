@@ -33,6 +33,10 @@ func (publisher *PageEventsPublisher) BlocksUpdated(_ context.Context, page doma
 	return publisher.publish("page.blocks.updated", page)
 }
 
+func (publisher *PageEventsPublisher) PageDeleted(_ context.Context, page domain.Page) error {
+	return publisher.publish("page.deleted", page)
+}
+
 func (publisher *PageEventsPublisher) publish(eventType string, page domain.Page) error {
 	payload, err := json.Marshal(pageEvent{Type: eventType, Page: page, Timestamp: time.Now().UTC()})
 	if err != nil {

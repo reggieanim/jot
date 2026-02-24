@@ -15,6 +15,8 @@ import (
 
 type MediaStore interface {
 	UploadImage(ctx context.Context, fileName string, contentType string, content []byte) (url string, key string, err error)
+	DeleteObject(ctx context.Context, objectKey string) error
+	ObjectKeyFromURL(rawURL string) string
 }
 
 type S3MediaStore struct {
@@ -93,4 +95,25 @@ func (store *S3MediaStore) UploadImage(ctx context.Context, fileName string, con
 	}
 
 	return store.publicBaseURL + "/" + objectKey, objectKey, nil
+}
+
+func (store *S3MediaStore) DeleteObject(ctx context.Context, objectKey string) error {
+	if objectKey == "" {
+		return nil
+	}
+	err := store.client.RemoveObject(ctx, store.bucket, objectKey, minio.RemoveObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("delete object %s: %w", objectKey, err)
+	}
+	return nil
+}
+
+// ObjectKeyFromURL extracts the S3 object key from a full public URL.
+// Returns empty string if the URL doesn't belong to this store.
+func (store *S3MediaStore) ObjectKeyFromURL(rawURL string) string {
+	prefix := store.publicBaseURL + "/"
+	if strings.HasPrefix(rawURL, prefix) {
+		return strings.TrimPrefix(rawURL, prefix)
+	}
+	return ""
 }

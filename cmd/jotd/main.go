@@ -10,10 +10,16 @@ import (
 	"syscall"
 	"time"
 
+	filesnats "github.com/reggieanim/jot/internal/modules/files/adapters/nats"
+	filesapp "github.com/reggieanim/jot/internal/modules/files/app"
 	pagesgrpc "github.com/reggieanim/jot/internal/modules/pages/adapters/grpc"
 	pageshttp "github.com/reggieanim/jot/internal/modules/pages/adapters/http"
 	pagespostgres "github.com/reggieanim/jot/internal/modules/pages/adapters/postgres"
 	pageapp "github.com/reggieanim/jot/internal/modules/pages/app"
+	usershttp "github.com/reggieanim/jot/internal/modules/users/adapters/http"
+	userspostgres "github.com/reggieanim/jot/internal/modules/users/adapters/postgres"
+	userapp "github.com/reggieanim/jot/internal/modules/users/app"
+	"github.com/reggieanim/jot/internal/platform/auth"
 	"github.com/reggieanim/jot/internal/platform/config"
 	platformpostgres "github.com/reggieanim/jot/internal/platform/db/postgres"
 	platformnats "github.com/reggieanim/jot/internal/platform/eventbus/nats"
@@ -82,7 +88,23 @@ func main() {
 	}
 
 	router := httputil.NewRouter(cfg.CORSOrigins)
-	pageshttp.RegisterRoutes(router, pagesService, natsConn, cfg.NATSSubject, logger, mediaStore)
+
+	// Users module (creates jwtIssuer needed by pages)
+	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret)
+	usersRepo := userspostgres.NewRepository(pool.Pool)
+	usersService := userapp.NewService(usersRepo, jwtIssuer, clock.SystemClock{})
+	usershttp.RegisterRoutes(router, usersService, jwtIssuer, logger)
+
+	// Pages module
+	pageshttp.RegisterRoutes(router, pagesService, natsConn, cfg.NATSSubject, logger, mediaStore, jwtIssuer)
+
+	// Files module: subscribes to page.deleted events and cleans up S3 objects.
+	filesService := filesapp.NewService(mediaStore, logger)
+	filesSubscriber := filesnats.NewSubscriber(filesService, natsConn, cfg.NATSSubject, logger)
+	if err := filesSubscriber.Start(); err != nil {
+		logger.Fatal("start files subscriber", zap.Error(err))
+	}
+	defer filesSubscriber.Stop()
 
 	httpServer := &http.Server{
 		Addr:         cfg.HTTPAddr,

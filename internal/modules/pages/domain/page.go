@@ -25,6 +25,7 @@ type Block struct {
 
 type Page struct {
 	ID             PageID     `json:"id"`
+	OwnerID        string     `json:"owner_id,omitempty"`
 	Title          string     `json:"title"`
 	Cover          *string    `json:"cover,omitempty"`
 	Published      bool       `json:"published"`

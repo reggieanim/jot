@@ -3,14 +3,31 @@
 	import { env } from '$env/dynamic/public';
 	import { onMount } from 'svelte';
 	import type { ApiPage } from '$lib/editor/types';
+	import { user as authUser } from '$lib/stores/auth';
 
 	const apiUrl = env.PUBLIC_API_URL || 'http://localhost:8080';
 
 	$: username = $page.params.username || 'anonymous';
 
+	type PublicProfile = {
+		id: string;
+		username: string;
+		display_name: string;
+		bio: string;
+		avatar_url: string;
+		follower_count: number;
+		follow_count: number;
+	};
+
+	let profile: PublicProfile | null = null;
 	let pages: ApiPage[] = [];
 	let loading = true;
 	let error = '';
+	let isFollowing = false;
+	let followLoading = false;
+
+	/** Whether this is the logged-in user's own profile */
+	$: isOwnProfile = $authUser?.username === username;
 
 	/** Per-card cinematic tint extracted from cover image */
 	let cardTints: Record<string, { bg: string; border: string; shadow: string; muted: string }> = {};
@@ -90,13 +107,28 @@
 
 	onMount(async () => {
 		try {
-			/* For now, fetch all published pages as a conceptual user profile.
-			   When users exist, this will become GET /v1/users/:username/pages */
-			const res = await fetch(`${apiUrl}/v1/pages`);
+			/* Fetch the public profile */
+			const profileRes = await fetch(`${apiUrl}/v1/users/username/${encodeURIComponent(username)}`, { credentials: 'include' });
+			if (!profileRes.ok) throw new Error('User not found');
+			profile = await profileRes.json();
+
+			/* Fetch the user's published pages */
+			const res = await fetch(`${apiUrl}/v1/users/${encodeURIComponent(profile.id)}/pages`);
 			if (!res.ok) throw new Error('Failed to load pages');
 			const payload = await res.json();
 			const all: ApiPage[] = payload?.items ?? [];
-			pages = all.filter((p) => p.published);
+			pages = all;
+
+			/* Check if the logged-in user is following this profile */
+			if ($authUser && profile && !isOwnProfile) {
+				try {
+					const followRes = await fetch(`${apiUrl}/v1/users/${profile.id}/is-following`, { credentials: 'include' });
+					if (followRes.ok) {
+						const data = await followRes.json();
+						isFollowing = data.following;
+					}
+				} catch { /* ignore */ }
+			}
 
 			for (const p of pages) {
 				if (!p.cinematic) continue;
@@ -109,6 +141,21 @@
 			loading = false;
 		}
 	});
+
+	async function toggleFollow() {
+		if (!profile || !$authUser || followLoading) return;
+		followLoading = true;
+		try {
+			const method = isFollowing ? 'DELETE' : 'POST';
+			const res = await fetch(`${apiUrl}/v1/users/${profile.id}/follow`, { method, credentials: 'include' });
+			if (!res.ok) throw new Error('Failed');
+			isFollowing = !isFollowing;
+			if (profile) {
+				profile = { ...profile, follower_count: profile.follower_count + (isFollowing ? 1 : -1) };
+			}
+		} catch { /* ignore */ }
+		finally { followLoading = false; }
+	}
 
 	function formatDate(iso?: string) {
 		if (!iso) return '';
@@ -147,87 +194,126 @@
 	}
 
 	$: totalProofreads = pages.reduce((s, p) => s + (p.proofread_count ?? 0), 0);
-	$: totalNotes = pages.reduce((s, p) => s + (p.block_count ?? 0), 0);
 </script>
 
-<div class="profile">
-	<!-- NAV -->
-	<header class="nav">
-		<a href="/" class="brand">Jot.</a>
-		<nav class="nav-links">
-			<a href="/">Home.</a>
-			<a href="/editor">Editor.</a>
-		</nav>
-	</header>
-
-	<!-- PROFILE HERO -->
-	<section class="profile-hero">
-		<div class="avatar">
-			<span class="avatar-letter">{(username ?? '?').charAt(0).toUpperCase()}</span>
-		</div>
-		<div class="profile-info">
-			<h1 class="profile-name">@{username}</h1>
-			<p class="profile-bio">Writer on Jot.</p>
-			<div class="profile-stats">
-				<div class="stat">
-					<span class="stat-value">{pages.length}</span>
-					<span class="stat-label">Published</span>
-				</div>
-				<div class="stat">
-					<span class="stat-value">{totalNotes}</span>
-					<span class="stat-label">Notes</span>
-				</div>
-				<div class="stat">
-					<span class="stat-value">{totalProofreads}</span>
-					<span class="stat-label">Proofreads</span>
-				</div>
-			</div>
-		</div>
-	</section>
-
-	<!-- PAGES -->
+<div class="profile-page">
 	{#if loading}
-		<div class="status">
+		<div class="loading-wrap">
 			<div class="spinner"></div>
-			<span>Loading pages…</span>
 		</div>
 	{:else if error}
-		<div class="status error-text">{error}</div>
-	{:else if pages.length === 0}
-		<div class="empty">
-			<div class="empty-icon">✦</div>
-			<p>No published pages yet.</p>
-		</div>
+		<div class="loading-wrap"><p class="error-text">{error}</p></div>
 	{:else}
-		<section class="section">
-			<h2 class="section-title">Published Pages</h2>
-			<div class="masonry">
-				{#each pages as p, idx (p.id)}
-					{@const img = imageFor(p)}
-					{@const emb = embedFor(p)}
-					<a class="card" href={`/public/${p.id}`} class:tall={idx % 3 === 0} class:dark={p.dark_mode} class:cinematic={p.cinematic} class:has-user-bg={!!p.bg_color} style={cinematicStyle(p)}>
-						<div class="card-visual" style={!img && !emb ? `background:${patternFor(p)}` : ''}>
-							{#if img}
-								<img src={img} alt={p.title || 'Page image'} />
-							{:else if emb}
-								<iframe src={emb} title="Embedded content" loading="lazy" sandbox="allow-scripts allow-same-origin"></iframe>
-							{:else}
-								<div class="card-default-icon">✦</div>
-							{/if}
-						</div>
-						<div class="card-body">
-							<span class="card-tag">Published</span>
-							<h3 class="card-title">{p.title || 'Untitled'}</h3>
-							<div class="card-stats">
-								<span><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg> {p.block_count ?? 0} notes</span>
-								<span><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h4l10-10-4-4L4 16v4z" /><path d="M12 6l4 4" /></svg> {p.proofread_count ?? 0} proofreads</span>
-							</div>
-							<div class="card-meta"><svg class="stat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg> {formatDate(p.published_at || p.updated_at)}</div>
-						</div>
-					</a>
-				{/each}
+		<!-- LEFT SIDEBAR -->
+		<aside class="sidebar">
+			<!-- cover / banner area -->
+			<div class="sidebar-cover">
+				{#if pages.length > 0 && imageFor(pages[0])}
+					<img class="sidebar-cover-img" src={imageFor(pages[0])} alt="Cover" />
+				{/if}
+				<div class="sidebar-cover-overlay"></div>
+				<a href="/" class="sidebar-brand">Jot.</a>
 			</div>
-		</section>
+
+			<!-- profile info -->
+			<div class="sidebar-profile">
+				<div class="sidebar-avatar">
+					{#if profile?.avatar_url}
+						<img class="sidebar-avatar-img" src={profile.avatar_url} alt={profile.display_name || username} />
+					{:else}
+						<span class="sidebar-avatar-letter">{(username ?? '?').charAt(0).toUpperCase()}</span>
+					{/if}
+				</div>
+				<h1 class="sidebar-name">{profile?.display_name || `@${username}`}</h1>
+				<span class="sidebar-username">@{username}</span>
+				{#if profile?.bio}
+					<p class="sidebar-bio">{profile.bio}</p>
+				{:else}
+					<p class="sidebar-bio">Writer on Jot.</p>
+				{/if}
+
+				<div class="sidebar-stats">
+					<div class="sidebar-stat">
+						<span class="sidebar-stat-val">{pages.length}</span>
+						<span class="sidebar-stat-lbl">Posts</span>
+					</div>
+					<div class="sidebar-stat">
+						<span class="sidebar-stat-val">{totalProofreads}</span>
+						<span class="sidebar-stat-lbl">Proofreads</span>
+					</div>
+					<div class="sidebar-stat">
+						<span class="sidebar-stat-val">{profile?.follower_count ?? 0}</span>
+						<span class="sidebar-stat-lbl">Followers</span>
+					</div>
+					<div class="sidebar-stat">
+						<span class="sidebar-stat-val">{profile?.follow_count ?? 0}</span>
+						<span class="sidebar-stat-lbl">Following</span>
+					</div>
+				</div>
+
+				{#if $authUser && profile && !isOwnProfile}
+					<button class="sidebar-follow" class:following={isFollowing} on:click={toggleFollow} disabled={followLoading}>
+						{isFollowing ? 'Following' : 'Follow'}
+					</button>
+				{/if}
+			</div>
+
+			<nav class="sidebar-nav">
+				<a href="/" class="sidebar-nav-link">Home</a>
+				<a href="/editor" class="sidebar-nav-link">Editor</a>
+				{#if $authUser}
+					<a href="/editor" class="sidebar-nav-cta">+ New page</a>
+				{:else}
+					<a href="/signup" class="sidebar-nav-cta">Try it free</a>
+				{/if}
+			</nav>
+
+			<div class="sidebar-footer">
+				<span class="sidebar-footer-copy">© 2026 Jot.</span>
+			</div>
+		</aside>
+
+		<!-- MAIN CONTENT -->
+		<main class="main">
+			{#if pages.length === 0}
+				<div class="empty">
+					<div class="empty-icon">✦</div>
+					<p>No published pages yet.</p>
+				</div>
+			{:else}
+				<div class="masonry">
+					{#each pages as p, idx (p.id)}
+						{@const img = imageFor(p)}
+						{@const emb = embedFor(p)}
+						<a class="card" href={`/public/${p.id}`} class:tall={idx % 3 === 0} class:dark={p.dark_mode} class:cinematic={p.cinematic} class:has-user-bg={!!p.bg_color} style={cinematicStyle(p)}>
+							<div class="card-visual" style={!img && !emb ? `background:${patternFor(p)}` : ''}>
+								{#if img}
+									<img src={img} alt={p.title || 'Page image'} />
+								{:else if emb}
+									<iframe src={emb} title="Embedded content" loading="lazy" sandbox="allow-scripts allow-same-origin"></iframe>
+								{:else}
+									<div class="card-default-icon">✦</div>
+								{/if}
+							</div>
+							<div class="card-body">
+								<span class="card-tag">{p.title ? p.title.split(' ').slice(0, 3).join(' ').toUpperCase() : 'UNTITLED'}</span>
+								<h3 class="card-title">{p.title || 'Untitled'}</h3>
+							<div class="card-author">
+								<span>✎ {profile?.display_name || username}.</span>
+								<span>📅 {formatDate(p.published_at || p.updated_at)}</span>
+							</div>
+							{#if p.proofread_count}
+								<span class="card-proofreads">{p.proofread_count} proofread{p.proofread_count === 1 ? '' : 's'}</span>
+							{/if}
+							<div class="card-read-more">
+									<span>READ MORE</span>
+								</div>
+							</div>
+						</a>
+					{/each}
+				</div>
+			{/if}
+		</main>
 	{/if}
 </div>
 
@@ -238,136 +324,364 @@
 		color: #1a1a1a;
 	}
 
-	.profile {
-		max-width: 1200px;
-		margin: 0 auto;
-		padding: 0 28px 80px;
+	/* ---- TWO-COLUMN LAYOUT ---- */
+	.profile-page {
+		display: grid;
+		grid-template-columns: 72px 1fr;
+		min-height: 100vh;
+		transition: grid-template-columns 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 	}
 
-	/* ---- NAV ---- */
-	.nav {
+	.profile-page:has(.sidebar:hover) {
+		grid-template-columns: 340px 1fr;
+	}
+
+	/* ---- SIDEBAR ---- */
+	.sidebar {
+		position: sticky;
+		top: 0;
+		height: 100vh;
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 24px 0;
-		border-bottom: 2px solid #1a1a1a;
+		flex-direction: column;
+		background: #0e0e0e;
+		color: #fff;
+		overflow: hidden;
+		border-right: 3px solid #1a1a1a;
+		min-width: 0;
+		transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 	}
 
-	.brand {
-		font-size: 24px;
-		font-weight: 800;
-		color: #1a1a1a;
+	.sidebar:hover {
+		overflow-y: auto;
+	}
+
+	.sidebar-cover {
+		position: relative;
+		width: 100%;
+		height: 0;
+		background: #111;
+		overflow: hidden;
+		flex-shrink: 0;
+		transition: height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+	}
+
+	.sidebar:hover .sidebar-cover {
+		height: 320px;
+	}
+
+	.sidebar-cover-img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+		filter: brightness(0.55) saturate(1.1);
+	}
+
+	.sidebar-cover-overlay {
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(to bottom, rgba(14,14,14,0) 30%, rgba(14,14,14,0.95) 100%);
+		pointer-events: none;
+	}
+
+	.sidebar-brand {
+		position: absolute;
+		top: 20px;
+		left: 24px;
+		font-size: 1.4rem;
+		font-weight: 900;
+		color: #fff;
 		text-decoration: none;
 		letter-spacing: -0.04em;
+		z-index: 2;
+		opacity: 0;
+		transition: opacity 0.25s;
+		pointer-events: none;
 	}
 
-	.nav-links {
+	.sidebar:hover .sidebar-brand {
+		opacity: 0.85;
+		pointer-events: auto;
+	}
+
+	.sidebar:hover .sidebar-brand:hover {
+		opacity: 1;
+	}
+
+	/* ---- SIDEBAR PROFILE ---- */
+	.sidebar-profile {
+		padding: 16px 14px 16px;
+		margin-top: 0;
+		position: relative;
+		z-index: 2;
 		display: flex;
-		gap: 28px;
-	}
-
-	.nav-links a {
-		font-size: 15px;
-		font-weight: 500;
-		color: #1a1a1a;
-		text-decoration: none;
-		transition: opacity 0.15s;
-	}
-
-	.nav-links a:hover {
-		opacity: 0.5;
-	}
-
-	/* ---- PROFILE HERO ---- */
-	.profile-hero {
-		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: 28px;
-		padding: 48px 0 40px;
-		border-bottom: 2px solid #1a1a1a;
+		transition: padding 0.35s, margin-top 0.35s;
 	}
 
-	.avatar {
-		width: 88px;
-		height: 88px;
+	.sidebar:hover .sidebar-profile {
+		padding: 0 28px 28px;
+		margin-top: -40px;
+		align-items: flex-start;
+	}
+
+	.sidebar-avatar {
+		width: 44px;
+		height: 44px;
 		border-radius: 50%;
-		border: 2px solid #1a1a1a;
+		border: 3px solid #0e0e0e;
 		background: #1a1a1a;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
-		box-shadow: 4px 4px 0 #1a1a1a;
+		overflow: hidden;
+		box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+		transition: width 0.35s, height 0.35s;
 	}
 
-	.avatar-letter {
-		font-size: 36px;
-		font-weight: 800;
+	.sidebar:hover .sidebar-avatar {
+		width: 80px;
+		height: 80px;
+	}
+
+	.sidebar-avatar-img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		border-radius: 50%;
+	}
+
+	.sidebar-avatar-letter {
+		font-size: 30px;
+		font-weight: 900;
 		color: #fff;
 		text-transform: uppercase;
 		letter-spacing: -0.04em;
 	}
 
-	.profile-info {
+	.sidebar-name {
+		font-size: 22px;
+		font-weight: 900;
+		letter-spacing: -0.03em;
+		margin: 16px 0 0;
+		line-height: 1.15;
+		color: #fff;
+		opacity: 0;
+		max-height: 0;
+		overflow: hidden;
+		transition: opacity 0.25s, max-height 0.35s;
+	}
+
+	.sidebar:hover .sidebar-name {
+		opacity: 1;
+		max-height: 60px;
+	}
+
+	.sidebar-username {
+		font-size: 13px;
+		color: #777;
+		margin-top: 3px;
+		font-weight: 500;
+		opacity: 0;
+		max-height: 0;
+		overflow: hidden;
+		transition: opacity 0.25s, max-height 0.35s;
+	}
+
+	.sidebar:hover .sidebar-username {
+		opacity: 1;
+		max-height: 24px;
+	}
+
+	.sidebar-bio {
+		font-size: 13px;
+		color: #999;
+		line-height: 1.6;
+		margin: 12px 0 0;
+		opacity: 0;
+		max-height: 0;
+		overflow: hidden;
+		transition: opacity 0.25s, max-height 0.35s;
+	}
+
+	.sidebar:hover .sidebar-bio {
+		opacity: 1;
+		max-height: 100px;
+	}
+
+	/* ---- SIDEBAR STATS ---- */
+	.sidebar-stats {
+		display: flex;
+		gap: 20px;
+		margin-top: 24px;
+		padding-top: 20px;
+		border-top: 1px solid #2a2a2a;
+		opacity: 0;
+		max-height: 0;
+		overflow: hidden;
+		transition: opacity 0.25s, max-height 0.35s;
+	}
+
+	.sidebar:hover .sidebar-stats {
+		opacity: 1;
+		max-height: 80px;
+	}
+
+	.sidebar-stat {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		align-items: center;
+		gap: 2px;
 	}
 
-	.profile-name {
-		font-size: clamp(28px, 4vw, 42px);
-		font-weight: 800;
-		letter-spacing: -0.04em;
-		margin: 0;
-		text-transform: lowercase;
-	}
-
-	.profile-bio {
-		font-size: 15px;
-		color: #888;
-		margin: 0;
-	}
-
-	.profile-stats {
-		display: flex;
-		gap: 24px;
-		margin-top: 8px;
-	}
-
-	.stat {
-		display: flex;
-		align-items: baseline;
-		gap: 5px;
-	}
-
-	.stat-value {
+	.sidebar-stat-val {
 		font-size: 20px;
-		font-weight: 800;
+		font-weight: 900;
 		letter-spacing: -0.03em;
+		color: #fff;
 	}
 
-	.stat-label {
-		font-size: 12px;
-		font-weight: 600;
+	.sidebar-stat-lbl {
+		font-size: 9px;
+		font-weight: 700;
 		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: #888;
+		letter-spacing: 0.12em;
+		color: #666;
 	}
 
-	/* ---- STATUS ---- */
-	.status {
+	/* ---- SIDEBAR FOLLOW ---- */
+	.sidebar-follow {
+		margin-top: 24px;
+		padding: 9px 0;
+		width: 100%;
+		font-family: inherit;
+		font-size: 13px;
+		font-weight: 700;
+		color: #0e0e0e;
+		background: #fff;
+		border: 2px solid #fff;
+		cursor: pointer;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		transition: background 0.15s, transform 0.15s, box-shadow 0.15s, opacity 0.25s, max-height 0.35s;
+		opacity: 0;
+		max-height: 0;
+		overflow: hidden;
+	}
+
+	.sidebar:hover .sidebar-follow {
+		opacity: 1;
+		max-height: 50px;
+	}
+
+	.sidebar-follow:hover {
+		background: #e0e0e0;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(255,255,255,0.15);
+	}
+
+	.sidebar-follow.following {
+		background: transparent;
+		color: #fff;
+		border-color: #555;
+	}
+
+	.sidebar-follow.following:hover {
+		border-color: #888;
+		background: rgba(255,255,255,0.05);
+	}
+
+	.sidebar-follow:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+
+	/* ---- SIDEBAR NAV ---- */
+	.sidebar-nav {
+		margin-top: auto;
+		padding: 20px 28px;
+		border-top: 1px solid #2a2a2a;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		opacity: 0;
+		max-height: 0;
+		overflow: hidden;
+		transition: opacity 0.25s, max-height 0.35s;
+	}
+
+	.sidebar:hover .sidebar-nav {
+		opacity: 1;
+		max-height: 200px;
+	}
+
+	.sidebar-nav-link {
+		font-size: 13px;
+		font-weight: 600;
+		color: #999;
+		text-decoration: none;
+		transition: color 0.15s;
+	}
+
+	.sidebar-nav-link:hover {
+		color: #fff;
+	}
+
+	.sidebar-nav-cta {
+		margin-top: 4px;
+		padding: 8px 0;
+		font-family: inherit;
+		font-size: 12px;
+		font-weight: 700;
+		color: #0e0e0e;
+		background: #fff;
+		text-align: center;
+		text-decoration: none;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		transition: background 0.15s;
+	}
+
+	.sidebar-nav-cta:hover {
+		background: #e0e0e0;
+	}
+
+	.sidebar-footer {
+		padding: 16px 28px 24px;
+		opacity: 0;
+		transition: opacity 0.25s;
+	}
+
+	.sidebar:hover .sidebar-footer {
+		opacity: 1;
+	}
+
+	.sidebar-footer-copy {
+		font-size: 11px;
+		color: #444;
+		font-weight: 500;
+	}
+
+	/* ---- MAIN CONTENT ---- */
+	.main {
+		padding: 40px 36px 80px;
+		min-height: 100vh;
+	}
+
+	/* ---- LOADING / EMPTY ---- */
+	.loading-wrap {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 12px;
-		padding: 80px 20px;
-		font-size: 16px;
-		color: #888;
+		min-height: 100vh;
+		grid-column: 1 / -1;
 	}
 
 	.spinner {
-		width: 18px;
-		height: 18px;
+		width: 20px;
+		height: 20px;
 		border: 2px solid #ddd;
 		border-top-color: #1a1a1a;
 		border-radius: 50%;
@@ -380,52 +694,38 @@
 
 	.error-text {
 		color: #c00;
+		font-size: 16px;
 	}
 
 	.empty {
 		text-align: center;
-		padding: 80px 20px;
+		padding: 120px 20px;
 	}
 
 	.empty-icon {
 		font-size: 48px;
 		margin-bottom: 16px;
-		opacity: 0.3;
+		opacity: 0.2;
 	}
 
 	.empty p {
-		font-size: 18px;
+		font-size: 16px;
 		color: #888;
 		margin: 0;
-	}
-
-	/* ---- SECTIONS ---- */
-	.section {
-		margin-top: 32px;
-	}
-
-	.section-title {
-		font-size: 13px;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.14em;
-		color: #888;
-		margin: 0 0 20px;
-		padding-bottom: 10px;
-		border-bottom: 1px solid #ddd;
 	}
 
 	/* ---- MASONRY ---- */
 	.masonry {
 		columns: 3;
-		column-gap: 12px;
+		column-gap: 14px;
 	}
 
 	/* ---- CARD ---- */
 	.card {
-		display: inline-block;
+		display: inline-flex;
+		flex-direction: column;
 		width: 100%;
-		margin-bottom: 12px;
+		margin-bottom: 14px;
 		background: #fff;
 		border: 2px solid #1a1a1a;
 		border-radius: 8px;
@@ -434,6 +734,7 @@
 		color: inherit;
 		transition: transform 0.12s ease, box-shadow 0.12s ease;
 		break-inside: avoid;
+		position: relative;
 	}
 
 	.card:hover {
@@ -444,7 +745,7 @@
 	/* ---- CARD VISUAL ---- */
 	.card-visual {
 		width: 100%;
-		min-height: 160px;
+		min-height: 130px;
 		background: #e8e8e4;
 		overflow: hidden;
 		display: flex;
@@ -454,7 +755,7 @@
 	}
 
 	.card.tall .card-visual {
-		min-height: 260px;
+		min-height: 200px;
 	}
 
 	.card-visual img {
@@ -477,38 +778,37 @@
 
 	.card-default-icon {
 		font-size: 40px;
-		opacity: 0.25;
+		opacity: 0.2;
 		color: #1a1a1a;
 		user-select: none;
 	}
 
 	/* ---- CARD BODY ---- */
 	.card-body {
-		padding: 16px 18px 18px;
+		padding: 12px 14px 10px;
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 5px;
 	}
 
 	.card-tag {
 		display: inline-block;
-		font-size: 11px;
+		font-size: 9px;
 		font-weight: 800;
 		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		background: #1a1a1a;
-		color: #fff;
-		padding: 3px 8px;
-		border-radius: 4px;
+		letter-spacing: 0.1em;
+		color: #1a1a1a;
 		align-self: flex-start;
+		border-bottom: 2px solid #1a1a1a;
+		padding-bottom: 2px;
 	}
 
 	.card-title {
-		font-size: 18px;
-		font-weight: 700;
+		font-size: 14px;
+		font-weight: 800;
 		letter-spacing: -0.02em;
-		margin: 4px 0 0;
-		line-height: 1.3;
+		margin: 2px 0 0;
+		line-height: 1.35;
 		display: -webkit-box;
 		-webkit-line-clamp: 2;
 		line-clamp: 2;
@@ -516,34 +816,37 @@
 		overflow: hidden;
 	}
 
-	.card-meta {
-		font-size: 12px;
+	.card-author {
+		display: flex;
+		gap: 10px;
+		font-size: 10px;
 		color: #888;
+		font-weight: 500;
 		margin-top: 2px;
 	}
 
-	.card-stats {
+	/* ---- READ MORE BAR ---- */
+	.card-proofreads {
+		font-size: 10px;
+		font-weight: 700;
+		color: #888;
+		letter-spacing: 0.02em;
+	}
+
+	.card-read-more {
+		margin-top: 8px;
+		padding-top: 10px;
+		border-top: 1px solid #e0dfdc;
 		display: flex;
-		gap: 12px;
-		font-size: 12px;
-		color: #555;
-		font-weight: 500;
+		align-items: center;
+		justify-content: space-between;
 	}
 
-	.stat-icon {
-		width: 14px;
-		height: 14px;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 2;
-		stroke-linecap: round;
-		stroke-linejoin: round;
-		vertical-align: -2px;
-		margin-right: 2px;
-	}
-
-	.card-meta .stat-icon {
-		opacity: 0.6;
+	.card-read-more span {
+		font-size: 10px;
+		font-weight: 800;
+		letter-spacing: 0.12em;
+		color: #1a1a1a;
 	}
 
 	/* ---- DARK MODE CARD ---- */
@@ -565,17 +868,21 @@
 		color: #fff;
 	}
 
-	.card.dark .card-meta {
-		color: #777;
-	}
-
-	.card.dark .card-stats {
-		color: #999;
+	.card.dark .card-author {
+		color: #666;
 	}
 
 	.card.dark .card-tag {
-		background: #fff;
-		color: #0a0a0a;
+		color: #ccc;
+		border-bottom-color: #555;
+	}
+
+	.card.dark .card-read-more {
+		border-top-color: #2a2a2a;
+	}
+
+	.card.dark .card-read-more span {
+		color: #ccc;
 	}
 
 	.card.dark .card-default-icon {
@@ -586,19 +893,18 @@
 		background: #111;
 	}
 
+	.card.dark .card-proofreads {
+		color: #666;
+	}
+
 	/* ---- CINEMATIC MODE CARD ---- */
 	.card.cinematic {
-		position: relative;
 		border-color: var(--card-border, #b8b0a4);
 		background: var(--card-bg, #faf8f4);
 	}
 
 	.card.cinematic:hover {
 		box-shadow: 6px 6px 0 var(--card-shadow, #a89e90);
-	}
-
-	.card.cinematic .card-visual {
-		position: relative;
 	}
 
 	.card.cinematic .card-visual::after {
@@ -617,19 +923,28 @@
 		color: #2a2a2c;
 	}
 
-	.card.cinematic .card-meta {
+	.card.cinematic .card-author {
 		color: var(--card-muted, #8a8580);
 	}
 
-	.card.cinematic .card-stats {
-		color: var(--card-muted, #7a756e);
+	.card.cinematic .card-tag {
+		color: #3a3632;
+		border-bottom-color: #3a3632;
 	}
 
-	.card.cinematic .card-tag {
-		background: #3a3632;
+	.card.cinematic .card-read-more {
+		border-top-color: var(--card-border, #d4cfc4);
+	}
+
+	.card.cinematic .card-read-more span {
+		color: #3a3632;
 	}
 
 	.card.cinematic .card-default-icon {
+		color: var(--card-muted, #8a8580);
+	}
+
+	.card.cinematic .card-proofreads {
 		color: var(--card-muted, #8a8580);
 	}
 
@@ -655,17 +970,25 @@
 		color: #e8e4dc;
 	}
 
-	.card.dark.cinematic .card-meta {
+	.card.dark.cinematic .card-author {
 		color: #6a665e;
 	}
 
-	.card.dark.cinematic .card-stats {
-		color: #7a766e;
+	.card.dark.cinematic .card-tag {
+		color: #d4cfc4;
+		border-bottom-color: #3a3630;
 	}
 
-	.card.dark.cinematic .card-tag {
-		background: #d4cfc4;
-		color: #0c0b0a;
+	.card.dark.cinematic .card-read-more {
+		border-top-color: #2a2824;
+	}
+
+	.card.dark.cinematic .card-read-more span {
+		color: #d4cfc4;
+	}
+
+	.card.dark.cinematic .card-proofreads {
+		color: #6a665e;
 	}
 
 	/* ---- USER BACKGROUND COLOR CARD ---- */
@@ -682,42 +1005,51 @@
 	}
 
 	/* ---- RESPONSIVE ---- */
-	@media (max-width: 900px) {
+	@media (max-width: 1100px) {
+		.profile-page:has(.sidebar:hover) {
+			grid-template-columns: 300px 1fr;
+		}
+		.main {
+			padding: 32px 24px 60px;
+		}
+	}
+
+	@media (max-width: 860px) {
+		.profile-page {
+			grid-template-columns: 1fr;
+		}
+
+		.sidebar {
+			position: relative;
+			height: auto;
+			border-right: none;
+			border-bottom: 3px solid #1a1a1a;
+		}
+
+		.sidebar-cover {
+			height: 220px;
+		}
+
+		.main {
+			padding: 28px 20px 60px;
+		}
+
 		.masonry {
-			columns: 2;
+			columns: 3;
 		}
 	}
 
 	@media (max-width: 560px) {
-		.profile {
-			padding: 0 16px 60px;
+		.sidebar-cover {
+			height: 180px;
 		}
 
 		.masonry {
-			columns: 1;
+			columns: 2;
 		}
 
-		.nav-links {
-			display: none;
-		}
-
-		.profile-hero {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 20px;
-			padding: 32px 0 28px;
-		}
-
-		.profile-name {
-			font-size: 28px;
-		}
-
-		.profile-stats {
+		.sidebar-stats {
 			gap: 16px;
-		}
-
-		.stat-value {
-			font-size: 18px;
 		}
 	}
 </style>

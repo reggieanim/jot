@@ -93,10 +93,52 @@ func (repo *inMemoryRepo) GetProofreadByID(_ context.Context, proofreadID domain
 	return repo.proofreads[proofreadID], nil
 }
 
-func (repo *inMemoryRepo) ListPages(_ context.Context) ([]domain.Page, error) {
+func (repo *inMemoryRepo) ListPages(_ context.Context, ownerID string) ([]domain.Page, error) {
 	pages := make([]domain.Page, 0, len(repo.store))
 	for _, page := range repo.store {
-		pages = append(pages, page)
+		if page.DeletedAt == nil && page.OwnerID == ownerID {
+			pages = append(pages, page)
+		}
+	}
+	return pages, nil
+}
+
+func (repo *inMemoryRepo) DeletePage(_ context.Context, pageID domain.PageID) error {
+	delete(repo.store, pageID)
+	return nil
+}
+
+func (repo *inMemoryRepo) ArchivePage(_ context.Context, pageID domain.PageID) error {
+	page := repo.store[pageID]
+	now := time.Now().UTC()
+	page.DeletedAt = &now
+	repo.store[pageID] = page
+	return nil
+}
+
+func (repo *inMemoryRepo) RestorePage(_ context.Context, pageID domain.PageID) error {
+	page := repo.store[pageID]
+	page.DeletedAt = nil
+	repo.store[pageID] = page
+	return nil
+}
+
+func (repo *inMemoryRepo) ListArchivedPages(_ context.Context, ownerID string) ([]domain.Page, error) {
+	pages := make([]domain.Page, 0)
+	for _, page := range repo.store {
+		if page.DeletedAt != nil && page.OwnerID == ownerID {
+			pages = append(pages, page)
+		}
+	}
+	return pages, nil
+}
+
+func (repo *inMemoryRepo) ListPublishedPagesByOwner(_ context.Context, ownerID string) ([]domain.Page, error) {
+	pages := make([]domain.Page, 0)
+	for _, page := range repo.store {
+		if page.DeletedAt == nil && page.Published && page.OwnerID == ownerID {
+			pages = append(pages, page)
+		}
 	}
 	return pages, nil
 }
@@ -105,6 +147,7 @@ type noOpEvents struct{}
 
 func (noOpEvents) PageCreated(_ context.Context, _ domain.Page) error   { return nil }
 func (noOpEvents) BlocksUpdated(_ context.Context, _ domain.Page) error { return nil }
+func (noOpEvents) PageDeleted(_ context.Context, _ domain.Page) error   { return nil }
 
 func TestCreateAndGetPage(t *testing.T) {
 	service := NewService(newInMemoryRepo(), noOpEvents{}, fakeClock{now: time.Date(2026, 2, 12, 0, 0, 0, 0, time.UTC)})
@@ -115,7 +158,7 @@ func TestCreateAndGetPage(t *testing.T) {
 		Data:     json.RawMessage(`{"text":"hello"}`),
 	}}
 
-	page, err := service.CreatePage(context.Background(), "Welcome", nil, blocks)
+	page, err := service.CreatePage(context.Background(), "owner-1", "Welcome", nil, blocks)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -131,5 +174,9 @@ func TestCreateAndGetPage(t *testing.T) {
 
 	if len(got.Blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(got.Blocks))
+	}
+
+	if got.OwnerID != "owner-1" {
+		t.Fatalf("expected owner_id owner-1, got %s", got.OwnerID)
 	}
 }

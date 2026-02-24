@@ -47,7 +47,8 @@ func (server *Server) CreatePage(ctx context.Context, request *pagesv1.CreatePag
 	if c := request.GetCover(); c != "" {
 		cover = &c
 	}
-	page, err := server.service.CreatePage(ctx, request.GetTitle(), cover, blocks)
+	// gRPC does not carry user context yet; owner_id left empty for internal use.
+	page, err := server.service.CreatePage(ctx, "", request.GetTitle(), cover, blocks)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -68,7 +69,8 @@ func (server *Server) UpdateBlocks(ctx context.Context, request *pagesv1.UpdateB
 		return nil, err
 	}
 	pageID := domain.PageID(request.GetPageId())
-	if err := server.service.UpdateBlocks(ctx, pageID, blocks); err != nil {
+	// gRPC does not carry user context yet; ownership not checked for internal use.
+	if err := server.service.UpdateBlocks(ctx, "", pageID, blocks); err != nil {
 		return nil, mapError(err)
 	}
 	page, err := server.service.GetPage(ctx, pageID)

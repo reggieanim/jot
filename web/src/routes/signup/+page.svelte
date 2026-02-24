@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { env } from '$env/dynamic/public';
+	import { signup } from '$lib/stores/auth';
 
 	const apiUrl = env.PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -49,18 +50,7 @@
 		error = '';
 
 		try {
-			const res = await fetch(`${apiUrl}/v1/auth/signup`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				credentials: 'include',
-				body: JSON.stringify({ name: name.trim(), email: email.trim(), password })
-			});
-
-			if (!res.ok) {
-				const body = await res.json().catch(() => null);
-				throw new Error(body?.message || 'Could not create account');
-			}
-
+			await signup(name.trim(), email.trim(), password);
 			await goto('/');
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Something went wrong';
@@ -538,17 +528,18 @@
 		justify-content: center;
 		gap: 8px;
 		margin-top: 4px;
+		box-shadow: 4px 4px 0 #1a1a1a;
 	}
 
 	.submit-btn:hover:not(:disabled) {
 		background: #333;
 		transform: translateY(-1px);
-		box-shadow: 4px 4px 0 #1a1a1a;
+		box-shadow: 5px 5px 0 #1a1a1a;
 	}
 
 	.submit-btn:active:not(:disabled) {
-		transform: translateY(0);
-		box-shadow: none;
+		transform: translateY(1px);
+		box-shadow: 2px 2px 0 #1a1a1a;
 	}
 
 	.submit-btn:disabled {
@@ -640,7 +631,7 @@
 	}
 
 	.footer-link:hover {
-		opacity: 0.5;
+		opacity: 0.7;
 	}
 
 	.bottom-note {

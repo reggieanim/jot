@@ -123,6 +123,7 @@
 			await fetch(`${apiUrl}/v1/pages/${pageId}/typing`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
 				body: JSON.stringify({
 					block_id: blockId,
 					session_id: viewerSessionId,
@@ -141,6 +142,7 @@
 			await fetch(`${apiUrl}/v1/pages/${pageId}/presence`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
 				body: JSON.stringify({
 					session_id: viewerSessionId,
 					user_name: viewerName,
@@ -447,7 +449,7 @@
 		if (!pageId) return;
 		status = 'Loading…';
 		try {
-			const response = await fetch(`${apiUrl}/v1/pages/${pageId}`);
+			const response = await fetch(`${apiUrl}/v1/pages/${pageId}`, { credentials: 'include' });
 			if (!response.ok) throw new Error('Failed to load');
 
 			const page: ApiPage = await response.json();
@@ -483,6 +485,7 @@
 			const response = await fetch(`${apiUrl}/v1/pages`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
 				body: JSON.stringify({ title, blocks, dark_mode: darkMode, cinematic: cinematicEnabled, mood: moodStrength, bg_color: bgColor })
 			});
 
@@ -538,6 +541,7 @@
 			const response = await fetch(`${apiUrl}/v1/pages/${pageId}/publish`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
 				body: JSON.stringify({ published: nextPublished })
 			});
 			if (!response.ok) throw new Error('publish update failed');
@@ -655,6 +659,7 @@
 			const response = await fetch(`${apiUrl}/v1/pages/${pageId}/realtime-blocks`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
 				body: JSON.stringify({ blocks: payloadBlocks, base_updated_at: baseUpdatedAt })
 			});
 
@@ -711,6 +716,7 @@
 			const response = await fetch(`${apiUrl}/v1/pages/${pageId}/meta`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
 				body: JSON.stringify({
 					title,
 					cover,
