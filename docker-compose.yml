@@ -111,6 +111,9 @@ services:
     ports:
       - "8081:8080"
       - "9091:9090"
+    networks:
+      - coolify
+      - default
 
   # ── SvelteKit Frontend ──
   web:
@@ -127,8 +130,16 @@ services:
       PUBLIC_API_URL: "${PUBLIC_API_URL:-http://jotd:8080}"
     ports:
       - "3000:3000"
+    networks:
+      - coolify
+      - default
 
 volumes:
   pgdata:
   natsdata:
   miniodata:
+
+networks:
+  coolify:
+    external: true
+  default:
