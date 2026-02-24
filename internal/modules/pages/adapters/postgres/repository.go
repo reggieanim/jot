@@ -360,6 +360,33 @@ func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offs
 	return pages, nil
 }
 
+func (repository *Repository) CreateShareLink(ctx context.Context, share domain.PageShareLink) error {
+	_, err := repository.pool.Exec(ctx, `
+		INSERT INTO page_share_links (token, page_id, access, created_by, revoked, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, share.Token, string(share.PageID), string(share.Access), share.CreatedBy, share.Revoked, share.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("create share link: %w", err)
+	}
+	return nil
+}
+
+func (repository *Repository) GetShareLinkByToken(ctx context.Context, token string) (domain.PageShareLink, error) {
+	var share domain.PageShareLink
+	err := repository.pool.QueryRow(ctx, `
+		SELECT token, page_id, access, created_by, revoked, created_at
+		FROM page_share_links
+		WHERE token = $1
+	`, token).Scan(&share.Token, &share.PageID, &share.Access, &share.CreatedBy, &share.Revoked, &share.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.PageShareLink{}, errs.ErrNotFound
+		}
+		return domain.PageShareLink{}, fmt.Errorf("get share link by token: %w", err)
+	}
+	return share, nil
+}
+
 func (repository *Repository) UpdateBlocksOptimistic(ctx context.Context, pageID domain.PageID, blocks []domain.Block, expectedUpdatedAt *time.Time) error {
 	tx, err := repository.pool.Begin(ctx)
 	if err != nil {

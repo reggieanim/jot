@@ -79,15 +79,19 @@ func (service *Service) CreatePageWithSettings(
 }
 
 func (service *Service) UpdateBlocks(ctx context.Context, ownerID string, pageID domain.PageID, blocks []domain.Block) error {
-	_, err := service.UpdateBlocksRealtime(ctx, ownerID, pageID, blocks, nil)
+	_, err := service.UpdateBlocksRealtimeWithShare(ctx, ownerID, pageID, blocks, nil, "")
 	return err
 }
 
 func (service *Service) UpdateBlocksRealtime(ctx context.Context, ownerID string, pageID domain.PageID, blocks []domain.Block, expectedUpdatedAt *time.Time) (domain.Page, error) {
+	return service.UpdateBlocksRealtimeWithShare(ctx, ownerID, pageID, blocks, expectedUpdatedAt, "")
+}
+
+func (service *Service) UpdateBlocksRealtimeWithShare(ctx context.Context, actorID string, pageID domain.PageID, blocks []domain.Block, expectedUpdatedAt *time.Time, shareToken string) (domain.Page, error) {
 	if pageID == "" {
 		return domain.Page{}, errs.ErrInvalidInput
 	}
-	if err := service.checkOwnership(ctx, pageID, ownerID); err != nil {
+	if _, _, err := service.ResolvePageAccess(ctx, actorID, pageID, shareToken, domain.ShareAccessEdit); err != nil {
 		return domain.Page{}, err
 	}
 	if err := service.repo.UpdateBlocksOptimistic(ctx, pageID, blocks, expectedUpdatedAt); err != nil {
@@ -104,10 +108,14 @@ func (service *Service) UpdateBlocksRealtime(ctx context.Context, ownerID string
 }
 
 func (service *Service) UpdatePageMetaRealtime(ctx context.Context, ownerID string, pageID domain.PageID, title string, cover *string, darkMode bool, cinematic bool, mood int, bgColor string, expectedUpdatedAt *time.Time) (domain.Page, error) {
+	return service.UpdatePageMetaRealtimeWithShare(ctx, ownerID, pageID, title, cover, darkMode, cinematic, mood, bgColor, expectedUpdatedAt, "")
+}
+
+func (service *Service) UpdatePageMetaRealtimeWithShare(ctx context.Context, actorID string, pageID domain.PageID, title string, cover *string, darkMode bool, cinematic bool, mood int, bgColor string, expectedUpdatedAt *time.Time, shareToken string) (domain.Page, error) {
 	if pageID == "" || title == "" {
 		return domain.Page{}, errs.ErrInvalidInput
 	}
-	if err := service.checkOwnership(ctx, pageID, ownerID); err != nil {
+	if _, _, err := service.ResolvePageAccess(ctx, actorID, pageID, shareToken, domain.ShareAccessEdit); err != nil {
 		return domain.Page{}, err
 	}
 	if mood < 0 {
@@ -249,6 +257,64 @@ func (service *Service) ListPublishedFeed(ctx context.Context, limit, offset int
 		return nil, fmt.Errorf("list published feed: %w", err)
 	}
 	return pages, nil
+}
+
+func (service *Service) CreateShareLink(ctx context.Context, ownerID string, pageID domain.PageID, access domain.ShareAccess) (domain.PageShareLink, error) {
+	if pageID == "" {
+		return domain.PageShareLink{}, errs.ErrInvalidInput
+	}
+	if access != domain.ShareAccessView && access != domain.ShareAccessEdit {
+		return domain.PageShareLink{}, errs.ErrInvalidInput
+	}
+	if err := service.checkOwnership(ctx, pageID, ownerID); err != nil {
+		return domain.PageShareLink{}, err
+	}
+	share := domain.PageShareLink{
+		Token:     uuid.NewString(),
+		PageID:    pageID,
+		Access:    access,
+		CreatedBy: ownerID,
+		Revoked:   false,
+		CreatedAt: service.clock.Now(),
+	}
+	if err := service.repo.CreateShareLink(ctx, share); err != nil {
+		return domain.PageShareLink{}, fmt.Errorf("create share link: %w", err)
+	}
+	return share, nil
+}
+
+func (service *Service) ResolvePageAccess(ctx context.Context, actorID string, pageID domain.PageID, shareToken string, required domain.ShareAccess) (domain.Page, string, error) {
+	if pageID == "" {
+		return domain.Page{}, "", errs.ErrInvalidInput
+	}
+	page, err := service.repo.GetByID(ctx, pageID)
+	if err != nil {
+		return domain.Page{}, "", fmt.Errorf("resolve page access: %w", err)
+	}
+	if actorID != "" && page.OwnerID != nil && *page.OwnerID == actorID {
+		return page, "owner", nil
+	}
+
+	shareToken = strings.TrimSpace(shareToken)
+	if shareToken == "" {
+		return domain.Page{}, "", errs.ErrForbidden
+	}
+
+	share, err := service.repo.GetShareLinkByToken(ctx, shareToken)
+	if err != nil {
+		return domain.Page{}, "", errs.ErrForbidden
+	}
+	if share.Revoked || share.PageID != pageID {
+		return domain.Page{}, "", errs.ErrForbidden
+	}
+	if required == domain.ShareAccessEdit && share.Access != domain.ShareAccessEdit {
+		return domain.Page{}, "", errs.ErrForbidden
+	}
+
+	if share.Access == domain.ShareAccessEdit {
+		return page, "edit", nil
+	}
+	return page, "view", nil
 }
 
 func (service *Service) checkOwnership(ctx context.Context, pageID domain.PageID, ownerID string) error {

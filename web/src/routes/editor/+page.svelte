@@ -5,13 +5,18 @@
 	import { onDestroy, onMount } from 'svelte';
 	import Block from '$lib/components/Block.svelte';
 	import Cover from '$lib/components/Cover.svelte';
+	import { user as authUser } from '$lib/stores/auth';
 	import { getBlockAsGalleryItems, normalizeGalleryItems, toGalleryData } from '$lib/editor/blocks';
 	import { buildThemeStyle, DEFAULT_THEME, extractPaletteFromImage } from '$lib/editor/theme';
+	import { copyTextToClipboard } from '$lib/utils/clipboard';
 	import type { ApiBlock, ApiPage, Rgb } from '$lib/editor/types';
 
 	const apiUrl = env.PUBLIC_API_URL || 'http://localhost:8080';
 
 	let pageId = '';
+	let shareToken = '';
+	let accessMode: 'owner' | 'edit' | 'view' = 'owner';
+	let shareStatus = '';
 	let title = 'Untitled';
 	let titleEl: HTMLDivElement;
 	let cover: string | null = null;
@@ -51,9 +56,10 @@
 	let liveConnectionState: 'idle' | 'connecting' | 'live' | 'reconnecting' = 'idle';
 	let viewerSessionId = '';
 	let viewerName = '';
+	let viewerAvatarUrl = '';
 	let typingLocks: Record<string, { sessionId: string; userName: string; expiresAt: number }> = {};
-	let activeUsers: Record<string, { sessionId: string; userName: string; lastSeen: number }> = {};
-	let visibleUsers: Array<{ sessionId: string; userName: string; lastSeen: number }> = [];
+	let activeUsers: Record<string, { sessionId: string; userName: string; userAvatarUrl: string; lastSeen: number }> = {};
+	let visibleUsers: Array<{ sessionId: string; userName: string; userAvatarUrl: string; lastSeen: number }> = [];
 	const typingLockTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 	const typingHeartbeat: Record<string, number> = {};
 	let presenceHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -65,6 +71,8 @@
 	$: visibleUsers = Object.values(activeUsers)
 		.filter((user) => Date.now() - user.lastSeen <= PRESENCE_TTL_MS)
 		.sort((a, b) => (a.sessionId === viewerSessionId ? -1 : b.sessionId === viewerSessionId ? 1 : a.userName.localeCompare(b.userName)));
+	$: canEdit = accessMode === 'owner' || accessMode === 'edit';
+	$: canManage = accessMode === 'owner';
 
 	function generateClientId() {
 		if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -73,18 +81,43 @@
 		return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	}
 
+	function withShare(path: string) {
+		if (!shareToken) return `${apiUrl}${path}`;
+		const sep = path.includes('?') ? '&' : '?';
+		return `${apiUrl}${path}${sep}share=${encodeURIComponent(shareToken)}`;
+	}
+
 	function setupViewerIdentity() {
 		if (typeof window === 'undefined') return;
 		const sessionKey = 'jot.viewer.session';
 		const nameKey = 'jot.viewer.name';
+		const avatarKey = 'jot.viewer.avatar';
 
 		const existingSession = window.localStorage.getItem(sessionKey)?.trim();
 		viewerSessionId = existingSession || generateClientId();
 		window.localStorage.setItem(sessionKey, viewerSessionId);
 
 		const existingName = window.localStorage.getItem(nameKey)?.trim();
-		viewerName = existingName || `User-${viewerSessionId.slice(0, 6)}`;
+		const profileName = ($authUser?.display_name || $authUser?.username || '').trim();
+		viewerName = profileName || existingName || `User-${viewerSessionId.slice(0, 6)}`;
 		window.localStorage.setItem(nameKey, viewerName);
+
+		const existingAvatar = window.localStorage.getItem(avatarKey)?.trim();
+		viewerAvatarUrl = ($authUser?.avatar_url || '').trim() || existingAvatar || '';
+		window.localStorage.setItem(avatarKey, viewerAvatarUrl);
+	}
+
+	$: if (typeof window !== 'undefined' && $authUser) {
+		const profileName = ($authUser.display_name || $authUser.username || '').trim();
+		if (profileName && profileName !== viewerName) {
+			viewerName = profileName;
+			window.localStorage.setItem('jot.viewer.name', viewerName);
+		}
+		const profileAvatar = ($authUser.avatar_url || '').trim();
+		if (profileAvatar !== viewerAvatarUrl) {
+			viewerAvatarUrl = profileAvatar;
+			window.localStorage.setItem('jot.viewer.avatar', viewerAvatarUrl);
+		}
 	}
 
 	function clearTypingTimer(blockId: string) {
@@ -120,7 +153,7 @@
 		}
 
 		try {
-			await fetch(`${apiUrl}/v1/pages/${pageId}/typing`, {
+			await fetch(withShare(`/v1/pages/${pageId}/typing`), {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',
@@ -128,6 +161,7 @@
 					block_id: blockId,
 					session_id: viewerSessionId,
 					user_name: viewerName,
+					user_avatar_url: viewerAvatarUrl,
 					is_typing: isTyping
 				})
 			});
@@ -139,13 +173,14 @@
 	async function publishPresence(isOnline: boolean) {
 		if (!pageId || !viewerSessionId || !viewerName) return;
 		try {
-			await fetch(`${apiUrl}/v1/pages/${pageId}/presence`, {
+			await fetch(withShare(`/v1/pages/${pageId}/presence`), {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',
 				body: JSON.stringify({
 					session_id: viewerSessionId,
 					user_name: viewerName,
+					user_avatar_url: viewerAvatarUrl,
 					is_online: isOnline
 				})
 			});
@@ -161,6 +196,7 @@
 			[viewerSessionId]: {
 				sessionId: viewerSessionId,
 				userName: viewerName,
+				userAvatarUrl: viewerAvatarUrl,
 				lastSeen: Date.now()
 			}
 		};
@@ -168,7 +204,7 @@
 
 	function pruneStaleUsers() {
 		const now = Date.now();
-		const next: Record<string, { sessionId: string; userName: string; lastSeen: number }> = {};
+		const next: Record<string, { sessionId: string; userName: string; userAvatarUrl: string; lastSeen: number }> = {};
 		for (const [sessionId, user] of Object.entries(activeUsers)) {
 			if (now - user.lastSeen <= PRESENCE_TTL_MS) {
 				next[sessionId] = user;
@@ -252,6 +288,7 @@
 	}
 
 	function addBlock(type: string, afterId?: string) {
+		if (!canEdit) return;
 		const defaultData =
 			type === 'heading'
 				? { text: '' }
@@ -287,6 +324,7 @@
 	}
 
 	function updateBlock(e: CustomEvent) {
+		if (!canEdit) return;
 		const { id, type, data } = e.detail;
 		const idx = blocks.findIndex((b) => b.id === id);
 		if (idx !== -1) {
@@ -299,12 +337,14 @@
 	}
 
 	function deleteBlock(e: CustomEvent) {
+		if (!canEdit) return;
 		const { id } = e.detail;
 		blocks = blocks.filter((b) => b.id !== id);
 		markBlocksDirtyAndScheduleSync();
 	}
 
 	function addBlockAfter(e: CustomEvent) {
+		if (!canEdit) return;
 		const { id, type: blockType } = e.detail;
 		const continueTypes = ['bullet', 'numbered'];
 		const nextType = blockType && continueTypes.includes(blockType) ? blockType : 'paragraph';
@@ -312,6 +352,7 @@
 	}
 
 	function transformBlock(e: CustomEvent) {
+		if (!canEdit) return;
 		const { id, newType } = e.detail;
 		const block = blocks.find((b) => b.id === id);
 		if (block) {
@@ -332,6 +373,7 @@
 	}
 
 	function mergeToGallery(e: CustomEvent) {
+		if (!canEdit) return;
 		const { targetId } = e.detail;
 		if (!draggedBlockId || draggedBlockId === targetId) return;
 
@@ -365,6 +407,7 @@
 	}
 
 	function handleGalleryCardDrop(e: DragEvent, afterId?: string) {
+		if (!canEdit) return;
 		e.preventDefault();
 		e.stopPropagation();
 
@@ -429,6 +472,7 @@
 	}
 
 	function handleDragOver(e: DragEvent, targetId: string) {
+		if (!canEdit) return;
 		e.preventDefault();
 		if (!draggedBlockId || draggedBlockId === targetId) return;
 
@@ -449,8 +493,12 @@
 		if (!pageId) return;
 		status = 'Loading…';
 		try {
-			const response = await fetch(`${apiUrl}/v1/pages/${pageId}`, { credentials: 'include' });
+			const response = await fetch(withShare(`/v1/pages/${pageId}`), { credentials: 'include' });
 			if (!response.ok) throw new Error('Failed to load');
+			const accessHeader = (response.headers.get('X-Jot-Access') || '').toLowerCase();
+			if (accessHeader === 'view' || accessHeader === 'edit' || accessHeader === 'owner') {
+				accessMode = accessHeader as 'owner' | 'edit' | 'view';
+			}
 
 			const page: ApiPage = await response.json();
 			title = page.title;
@@ -525,11 +573,13 @@
 	}
 
 	async function savePage() {
+		if (!canEdit) return;
 		if (!pageId) return;
 		await syncBlocksNow(true);
 	}
 
 	async function togglePublish() {
+		if (!canManage) return;
 		if (!pageId) {
 			const created = await createPage();
 			if (!created || !pageId) return;
@@ -538,7 +588,7 @@
 		const nextPublished = !isPublished;
 		status = nextPublished ? 'Publishing…' : 'Unpublishing…';
 		try {
-			const response = await fetch(`${apiUrl}/v1/pages/${pageId}/publish`, {
+			const response = await fetch(withShare(`/v1/pages/${pageId}/publish`), {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',
@@ -557,6 +607,30 @@
 			}, 1600);
 		} catch {
 			status = 'Publish update failed.';
+		}
+	}
+
+	async function copyShareLink(access: 'view' | 'edit') {
+		if (!canManage || !pageId) return;
+		shareStatus = `Creating ${access} link…`;
+		try {
+			const response = await fetch(withShare(`/v1/pages/${pageId}/share`), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
+				body: JSON.stringify({ access })
+			});
+			if (!response.ok) throw new Error('share create failed');
+			const payload = await response.json();
+			const relativeUrl = String(payload?.url || '');
+			const absolute = typeof window !== 'undefined' && relativeUrl ? new URL(relativeUrl, window.location.origin).toString() : '';
+			const copied = absolute ? await copyTextToClipboard(absolute) : false;
+			shareStatus = copied ? `${access === 'edit' ? 'Edit' : 'View'} link copied` : `${access === 'edit' ? 'Edit' : 'View'} link ready`;
+			setTimeout(() => {
+				if (shareStatus.includes('link')) shareStatus = '';
+			}, 1800);
+		} catch {
+			shareStatus = 'Failed to create link';
 		}
 	}
 
@@ -656,7 +730,7 @@
 		}
 
 		try {
-			const response = await fetch(`${apiUrl}/v1/pages/${pageId}/realtime-blocks`, {
+			const response = await fetch(withShare(`/v1/pages/${pageId}/realtime-blocks`), {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',
@@ -713,7 +787,7 @@
 		const baseUpdatedAt = pageRevision || undefined;
 
 		try {
-			const response = await fetch(`${apiUrl}/v1/pages/${pageId}/meta`, {
+			const response = await fetch(withShare(`/v1/pages/${pageId}/meta`), {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',
@@ -846,7 +920,7 @@
 		}
 		liveConnectionState = 'connecting';
 
-		const source = new EventSource(`${apiUrl}/v1/pages/${encodeURIComponent(targetPageID)}/events`);
+		const source = new EventSource(withShare(`/v1/pages/${encodeURIComponent(targetPageID)}/events`));
 		source.onopen = () => {
 			liveConnectionState = 'live';
 			liveRetryCount = 0;
@@ -890,7 +964,7 @@
 
 		source.addEventListener('typing', (event) => {
 			if (!(event instanceof MessageEvent)) return;
-			let payload: { typing?: { page_id?: string; block_id?: string; session_id?: string; user_name?: string; is_typing?: boolean } } | null = null;
+			let payload: { typing?: { page_id?: string; block_id?: string; session_id?: string; user_name?: string; user_avatar_url?: string; is_typing?: boolean } } | null = null;
 			try {
 				payload = JSON.parse(event.data);
 			} catch {
@@ -925,7 +999,7 @@
 
 		source.addEventListener('presence', (event) => {
 			if (!(event instanceof MessageEvent)) return;
-			let payload: { presence?: { page_id?: string; session_id?: string; user_name?: string; is_online?: boolean } } | null = null;
+			let payload: { presence?: { page_id?: string; session_id?: string; user_name?: string; user_avatar_url?: string; is_online?: boolean } } | null = null;
 			try {
 				payload = JSON.parse(event.data);
 			} catch {
@@ -949,6 +1023,7 @@
 				[presence.session_id]: {
 					sessionId: presence.session_id,
 					userName: presence.user_name,
+					userAvatarUrl: presence.user_avatar_url || '',
 					lastSeen: Date.now()
 				}
 			};
@@ -977,6 +1052,7 @@
 
 	$: {
 		const routePageId = $page.url.searchParams.get('pageId')?.trim() || '';
+		shareToken = $page.url.searchParams.get('share')?.trim() || '';
 		if (!routePageId) {
 			loadedRoutePageId = '';
 		} else if (routePageId !== loadedRoutePageId && routePageId !== pageId) {
@@ -1041,13 +1117,29 @@
 				</div>
 
 				<div class="publish-row">
-					<button type="button" class="publish-btn" class:published={isPublished} on:click={togglePublish}>
-						{isPublished ? 'Published' : 'Publish page'}
-					</button>
+					{#if canManage}
+						<button type="button" class="publish-btn" class:published={isPublished} on:click={togglePublish}>
+							{isPublished ? 'Published' : 'Publish page'}
+						</button>
+					{/if}
 					{#if isPublished && pageId}
 						<a class="public-link" href={`/public/${pageId}`} target="_blank" rel="noreferrer">Open public</a>
 					{/if}
 				</div>
+
+				{#if canManage && pageId}
+					<div class="share-row">
+						<button type="button" class="share-btn" on:click={() => copyShareLink('view')}>Copy view link</button>
+						<button type="button" class="share-btn" on:click={() => copyShareLink('edit')}>Copy edit link</button>
+					</div>
+					{#if shareStatus}
+						<div class="panel-status">{shareStatus}</div>
+					{/if}
+				{/if}
+
+				{#if !canEdit}
+					<div class="readonly-note">Read-only via shared link</div>
+				{/if}
 
 				<div class="mood-control" class:enabled={cinematicEnabled}>
 					<div class="mood-row">
@@ -1105,6 +1197,9 @@
 					<div class="users-on-page" aria-label="Users on page">
 						{#each visibleUsers as user (user.sessionId)}
 							<span class="user-chip" class:self={user.sessionId === viewerSessionId}>
+								{#if user.userAvatarUrl}
+									<img class="user-chip-avatar" src={user.userAvatarUrl} alt={user.userName} />
+								{/if}
 								{user.sessionId === viewerSessionId ? `${user.userName} (You)` : user.userName}
 							</span>
 						{/each}
@@ -1121,8 +1216,9 @@
 						bind:this={titleEl}
 						class="page-title"
 						class:cinematic={cinematicEnabled}
-						contenteditable="true"
+						contenteditable={canEdit ? 'true' : 'false'}
 						role="textbox"
+						tabindex={canEdit ? 0 : -1}
 						aria-label="Page title"
 						data-placeholder="Untitled"
 						on:input={updateTitle}
@@ -1158,7 +1254,7 @@
 							{listNumber}
 							published={isPublished}
 							{viewerSessionId}
-							lockOwner={block.id ? typingLocks[block.id] || null : null}
+							lockOwner={!canEdit ? { sessionId: 'shared-readonly', userName: 'Read-only link' } : block.id ? typingLocks[block.id] || null : null}
 							isDragging={draggedBlockId === block.id}
 							on:update={updateBlock}
 							on:typing={handleBlockTyping}
@@ -1172,7 +1268,9 @@
 					</div>
 				{/each}
 
-				<div class="click-to-add" on:click={addEmptyBlock} on:dragover|preventDefault on:drop={(e) => handleGalleryCardDrop(e)} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && addEmptyBlock()}></div>
+				{#if canEdit}
+					<div class="click-to-add" on:click={addEmptyBlock} on:dragover|preventDefault on:drop={(e) => handleGalleryCardDrop(e)} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && addEmptyBlock()}></div>
+				{/if}
 			</div>
 		</div>
 	</main>
@@ -1425,6 +1523,37 @@
 		text-decoration: none;
 	}
 
+	.share-row {
+		display: flex;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+
+	.share-btn {
+		display: inline-flex;
+		align-items: center;
+		border: 2px solid var(--note-title, #1a1a1a);
+		background: var(--note-surface, #fff);
+		color: var(--note-title, #1a1a1a);
+		font-size: 12px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		padding: 7px 10px;
+		border-radius: 6px;
+		cursor: pointer;
+	}
+
+	.readonly-note {
+		font-size: 12px;
+		font-weight: 700;
+		color: #92400e;
+		background: #fffbeb;
+		border: 2px solid #92400e;
+		padding: 6px 10px;
+		border-radius: 6px;
+	}
+
 	.users-on-page {
 		display: flex;
 		flex-wrap: wrap;
@@ -1434,6 +1563,7 @@
 	.user-chip {
 		display: inline-flex;
 		align-items: center;
+		gap: 6px;
 		font-size: 11px;
 		font-weight: 700;
 		padding: 4px 9px;
@@ -1446,6 +1576,14 @@
 	.user-chip.self {
 		background: var(--note-title, #1a1a1a);
 		color: var(--note-surface, #fff);
+	}
+
+	.user-chip-avatar {
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		object-fit: cover;
+		border: 1px solid currentColor;
 	}
 
 	.mood-control {

@@ -21,6 +21,7 @@ type inMemoryRepo struct {
 	store      map[domain.PageID]domain.Page
 	proofreads map[domain.ProofreadID]domain.Proofread
 	reads      map[domain.PageID]map[string]struct{}
+	shares     map[string]domain.PageShareLink
 }
 
 func newInMemoryRepo() *inMemoryRepo {
@@ -28,6 +29,7 @@ func newInMemoryRepo() *inMemoryRepo {
 		store:      map[domain.PageID]domain.Page{},
 		proofreads: map[domain.ProofreadID]domain.Proofread{},
 		reads:      map[domain.PageID]map[string]struct{}{},
+		shares:     map[string]domain.PageShareLink{},
 	}
 }
 
@@ -160,6 +162,18 @@ func (repo *inMemoryRepo) ListPublishedFeed(_ context.Context, limit, offset int
 		end = len(all)
 	}
 	return all[offset:end], nil
+}
+
+func (repo *inMemoryRepo) CreateShareLink(_ context.Context, share domain.PageShareLink) error {
+	repo.shares[share.Token] = share
+	return nil
+}
+
+func (repo *inMemoryRepo) GetShareLinkByToken(_ context.Context, token string) (domain.PageShareLink, error) {
+	if share, ok := repo.shares[token]; ok {
+		return share, nil
+	}
+	return domain.PageShareLink{}, nil
 }
 
 func (repo *inMemoryRepo) RecordOrganicRead(_ context.Context, pageID domain.PageID, readerKey string) (bool, error) {

@@ -17,6 +17,8 @@ type PageRepository interface {
 	ListPages(ctx context.Context, ownerID string) ([]domain.Page, error)
 	ListPublishedPagesByOwner(ctx context.Context, ownerID string) ([]domain.Page, error)
 	ListPublishedFeed(ctx context.Context, limit, offset int, sort string) ([]domain.FeedPage, error)
+	CreateShareLink(ctx context.Context, share domain.PageShareLink) error
+	GetShareLinkByToken(ctx context.Context, token string) (domain.PageShareLink, error)
 	DeletePage(ctx context.Context, pageID domain.PageID) error
 	ArchivePage(ctx context.Context, pageID domain.PageID) error
 	RestorePage(ctx context.Context, pageID domain.PageID) error

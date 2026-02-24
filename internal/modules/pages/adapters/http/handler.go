@@ -41,6 +41,7 @@ type typingPresence struct {
 	BlockID   string `json:"block_id"`
 	SessionID string `json:"session_id"`
 	UserName  string `json:"user_name"`
+	UserAvatarURL string `json:"user_avatar_url,omitempty"`
 	IsTyping  bool   `json:"is_typing"`
 }
 
@@ -48,6 +49,7 @@ type pagePresence struct {
 	PageID    string `json:"page_id"`
 	SessionID string `json:"session_id"`
 	UserName  string `json:"user_name"`
+	UserAvatarURL string `json:"user_avatar_url,omitempty"`
 	IsOnline  bool   `json:"is_online"`
 }
 
@@ -104,13 +106,19 @@ type publishTypingRequest struct {
 	BlockID   string `json:"block_id"`
 	SessionID string `json:"session_id"`
 	UserName  string `json:"user_name"`
+	UserAvatarURL string `json:"user_avatar_url,omitempty"`
 	IsTyping  bool   `json:"is_typing"`
 }
 
 type publishPresenceRequest struct {
 	SessionID string `json:"session_id"`
 	UserName  string `json:"user_name"`
+	UserAvatarURL string `json:"user_avatar_url,omitempty"`
 	IsOnline  bool   `json:"is_online"`
+}
+
+type createShareLinkRequest struct {
+	Access string `json:"access"`
 }
 
 func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, subject string, logger *zap.Logger, media storage.MediaStore, jwtIssuer *auth.JWTIssuer) {
@@ -129,24 +137,31 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, 
 	// SSE + realtime (EventSource can't send cookies/headers)
 	v1.GET("/pages/:pageID/events", handler.subscribePageEvents)
 
+	// Collaboration endpoints (allow guest access via share token)
+	collab := v1.Group("")
+	collab.Use(auth.OptionalMiddleware(jwtIssuer))
+	{
+		collab.POST("/pages/:pageID/presence", handler.publishPresence)
+		collab.POST("/pages/:pageID/typing", handler.publishTyping)
+		collab.GET("/pages/:pageID", handler.getPage)
+		collab.PUT("/pages/:pageID/blocks", handler.updateBlocks)
+		collab.PUT("/pages/:pageID/realtime-blocks", handler.updateBlocksRealtime)
+		collab.PUT("/pages/:pageID/meta", handler.updatePageMeta)
+	}
+
 	// Protected endpoints (require auth)
 	protected := v1.Group("")
 	protected.Use(auth.Middleware(jwtIssuer))
 	{
 		protected.POST("/media/images", handler.uploadImage)
-		protected.POST("/pages/:pageID/presence", handler.publishPresence)
-		protected.POST("/pages/:pageID/typing", handler.publishTyping)
 		protected.POST("/pages", handler.createPage)
 		protected.GET("/pages", handler.listPages)
 		protected.GET("/pages/archived", handler.listArchivedPages)
-		protected.GET("/pages/:pageID", handler.getPage)
 		protected.DELETE("/pages/:pageID", handler.deletePage)
 		protected.PUT("/pages/:pageID/archive", handler.archivePage)
 		protected.PUT("/pages/:pageID/restore", handler.restorePage)
-		protected.PUT("/pages/:pageID/blocks", handler.updateBlocks)
-		protected.PUT("/pages/:pageID/realtime-blocks", handler.updateBlocksRealtime)
-		protected.PUT("/pages/:pageID/meta", handler.updatePageMeta)
 		protected.PUT("/pages/:pageID/publish", handler.setPagePublished)
+		protected.POST("/pages/:pageID/share", handler.createShareLink)
 	}
 }
 
@@ -312,9 +327,15 @@ func (handler *Handler) getProofread(ctx *gin.Context) {
 }
 
 func (handler *Handler) publishPresence(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
 	pageID := strings.TrimSpace(ctx.Param("pageID"))
 	if pageID == "" {
 		ctx.JSON(400, gin.H{"error": "pageID is required"})
+		return
+	}
+	shareToken := strings.TrimSpace(ctx.Query("share"))
+	if _, _, err := handler.service.ResolvePageAccess(ctx.Request.Context(), string(uid), domain.PageID(pageID), shareToken, domain.ShareAccessView); err != nil {
+		handler.handleError(ctx, err)
 		return
 	}
 	if handler.conn == nil {
@@ -330,6 +351,7 @@ func (handler *Handler) publishPresence(ctx *gin.Context) {
 
 	body.SessionID = strings.TrimSpace(body.SessionID)
 	body.UserName = strings.TrimSpace(body.UserName)
+	body.UserAvatarURL = strings.TrimSpace(body.UserAvatarURL)
 	if body.SessionID == "" || body.UserName == "" {
 		ctx.JSON(400, gin.H{"error": "session_id and user_name are required"})
 		return
@@ -341,6 +363,7 @@ func (handler *Handler) publishPresence(ctx *gin.Context) {
 			PageID:    pageID,
 			SessionID: body.SessionID,
 			UserName:  body.UserName,
+			UserAvatarURL: body.UserAvatarURL,
 			IsOnline:  body.IsOnline,
 		},
 		Timestamp: time.Now().UTC(),
@@ -362,9 +385,15 @@ func (handler *Handler) publishPresence(ctx *gin.Context) {
 }
 
 func (handler *Handler) publishTyping(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
 	pageID := strings.TrimSpace(ctx.Param("pageID"))
 	if pageID == "" {
 		ctx.JSON(400, gin.H{"error": "pageID is required"})
+		return
+	}
+	shareToken := strings.TrimSpace(ctx.Query("share"))
+	if _, _, err := handler.service.ResolvePageAccess(ctx.Request.Context(), string(uid), domain.PageID(pageID), shareToken, domain.ShareAccessEdit); err != nil {
+		handler.handleError(ctx, err)
 		return
 	}
 	if handler.conn == nil {
@@ -381,6 +410,7 @@ func (handler *Handler) publishTyping(ctx *gin.Context) {
 	body.BlockID = strings.TrimSpace(body.BlockID)
 	body.SessionID = strings.TrimSpace(body.SessionID)
 	body.UserName = strings.TrimSpace(body.UserName)
+	body.UserAvatarURL = strings.TrimSpace(body.UserAvatarURL)
 	if body.BlockID == "" || body.SessionID == "" || body.UserName == "" {
 		ctx.JSON(400, gin.H{"error": "block_id, session_id and user_name are required"})
 		return
@@ -393,6 +423,7 @@ func (handler *Handler) publishTyping(ctx *gin.Context) {
 			BlockID:   body.BlockID,
 			SessionID: body.SessionID,
 			UserName:  body.UserName,
+			UserAvatarURL: body.UserAvatarURL,
 			IsTyping:  body.IsTyping,
 		},
 		Timestamp: time.Now().UTC(),
@@ -600,15 +631,13 @@ func (handler *Handler) createPage(ctx *gin.Context) {
 func (handler *Handler) getPage(ctx *gin.Context) {
 	uid, _ := auth.GetUserID(ctx)
 	pageID := domain.PageID(ctx.Param("pageID"))
-	page, err := handler.service.GetPage(ctx.Request.Context(), pageID)
+	shareToken := strings.TrimSpace(ctx.Query("share"))
+	page, accessMode, err := handler.service.ResolvePageAccess(ctx.Request.Context(), string(uid), pageID, shareToken, domain.ShareAccessView)
 	if err != nil {
 		handler.handleError(ctx, err)
 		return
 	}
-	if page.OwnerID == nil || *page.OwnerID != string(uid) {
-		ctx.JSON(403, gin.H{"error": "forbidden"})
-		return
-	}
+	ctx.Header("X-Jot-Access", accessMode)
 
 	ctx.JSON(200, page)
 }
@@ -616,13 +645,18 @@ func (handler *Handler) getPage(ctx *gin.Context) {
 func (handler *Handler) updateBlocks(ctx *gin.Context) {
 	uid, _ := auth.GetUserID(ctx)
 	pageID := domain.PageID(ctx.Param("pageID"))
+	shareToken := strings.TrimSpace(ctx.Query("share"))
+	if _, _, err := handler.service.ResolvePageAccess(ctx.Request.Context(), string(uid), pageID, shareToken, domain.ShareAccessEdit); err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
 	var body updateBlocksRequest
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		ctx.JSON(400, gin.H{"error": "invalid json body"})
 		return
 	}
 
-	if err := handler.service.UpdateBlocks(ctx.Request.Context(), string(uid), pageID, body.Blocks); err != nil {
+	if _, err := handler.service.UpdateBlocksRealtimeWithShare(ctx.Request.Context(), string(uid), pageID, body.Blocks, nil, shareToken); err != nil {
 		handler.handleError(ctx, err)
 		return
 	}
@@ -633,6 +667,11 @@ func (handler *Handler) updateBlocks(ctx *gin.Context) {
 func (handler *Handler) updateBlocksRealtime(ctx *gin.Context) {
 	uid, _ := auth.GetUserID(ctx)
 	pageID := domain.PageID(ctx.Param("pageID"))
+	shareToken := strings.TrimSpace(ctx.Query("share"))
+	if _, _, err := handler.service.ResolvePageAccess(ctx.Request.Context(), string(uid), pageID, shareToken, domain.ShareAccessEdit); err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
 	var body updateBlocksRealtimeRequest
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		ctx.JSON(400, gin.H{"error": "invalid json body"})
@@ -649,7 +688,7 @@ func (handler *Handler) updateBlocksRealtime(ctx *gin.Context) {
 		expectedUpdatedAt = &parsed
 	}
 
-	page, err := handler.service.UpdateBlocksRealtime(ctx.Request.Context(), string(uid), pageID, body.Blocks, expectedUpdatedAt)
+	page, err := handler.service.UpdateBlocksRealtimeWithShare(ctx.Request.Context(), string(uid), pageID, body.Blocks, expectedUpdatedAt, shareToken)
 	if err != nil {
 		if errors.Is(err, errs.ErrConflict) {
 			latest, getErr := handler.service.GetPage(ctx.Request.Context(), pageID)
@@ -670,6 +709,11 @@ func (handler *Handler) updateBlocksRealtime(ctx *gin.Context) {
 func (handler *Handler) updatePageMeta(ctx *gin.Context) {
 	uid, _ := auth.GetUserID(ctx)
 	pageID := domain.PageID(ctx.Param("pageID"))
+	shareToken := strings.TrimSpace(ctx.Query("share"))
+	if _, _, err := handler.service.ResolvePageAccess(ctx.Request.Context(), string(uid), pageID, shareToken, domain.ShareAccessEdit); err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
 	var body updatePageMetaRequest
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		ctx.JSON(400, gin.H{"error": "invalid json body"})
@@ -686,7 +730,7 @@ func (handler *Handler) updatePageMeta(ctx *gin.Context) {
 		expectedUpdatedAt = &parsed
 	}
 
-	page, err := handler.service.UpdatePageMetaRealtime(ctx.Request.Context(), string(uid), pageID, body.Title, body.Cover, body.DarkMode, body.Cinematic, body.Mood, body.BgColor, expectedUpdatedAt)
+	page, err := handler.service.UpdatePageMetaRealtimeWithShare(ctx.Request.Context(), string(uid), pageID, body.Title, body.Cover, body.DarkMode, body.Cinematic, body.Mood, body.BgColor, expectedUpdatedAt, shareToken)
 	if err != nil {
 		if errors.Is(err, errs.ErrConflict) {
 			latest, getErr := handler.service.GetPage(ctx.Request.Context(), pageID)
@@ -702,6 +746,27 @@ func (handler *Handler) updatePageMeta(ctx *gin.Context) {
 	}
 
 	ctx.JSON(200, gin.H{"status": "updated", "page": page})
+}
+
+func (handler *Handler) createShareLink(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
+	pageID := domain.PageID(ctx.Param("pageID"))
+	var body createShareLinkRequest
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(400, gin.H{"error": "invalid json body"})
+		return
+	}
+	access := domain.ShareAccess(strings.TrimSpace(strings.ToLower(body.Access)))
+	share, err := handler.service.CreateShareLink(ctx.Request.Context(), string(uid), pageID, access)
+	if err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	ctx.JSON(201, gin.H{
+		"token":  share.Token,
+		"access": share.Access,
+		"url":    fmt.Sprintf("/editor/%s?share=%s", pageID, share.Token),
+	})
 }
 
 func (handler *Handler) listFeed(ctx *gin.Context) {
