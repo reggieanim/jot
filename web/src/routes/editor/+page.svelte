@@ -17,6 +17,7 @@
 	let shareToken = '';
 	let accessMode: 'owner' | 'edit' | 'view' = 'owner';
 	let shareStatus = '';
+	let shareButtonState: Record<'view' | 'edit', 'idle' | 'loading' | 'copied' | 'error'> = { view: 'idle', edit: 'idle' };
 	let title = 'Untitled';
 	let titleEl: HTMLDivElement;
 	let cover: string | null = null;
@@ -612,7 +613,7 @@
 
 	async function copyShareLink(access: 'view' | 'edit') {
 		if (!canManage || !pageId) return;
-		shareStatus = `Creating ${access} link…`;
+		shareButtonState = { ...shareButtonState, [access]: 'loading' };
 		try {
 			const response = await fetch(withShare(`/v1/pages/${pageId}/share`), {
 				method: 'POST',
@@ -624,13 +625,16 @@
 			const payload = await response.json();
 			const relativeUrl = String(payload?.url || '');
 			const absolute = typeof window !== 'undefined' && relativeUrl ? new URL(relativeUrl, window.location.origin).toString() : '';
-			const copied = absolute ? await copyTextToClipboard(absolute) : false;
-			shareStatus = copied ? `${access === 'edit' ? 'Edit' : 'View'} link copied` : `${access === 'edit' ? 'Edit' : 'View'} link ready`;
+			await copyTextToClipboard(absolute);
+			shareButtonState = { ...shareButtonState, [access]: 'copied' };
 			setTimeout(() => {
-				if (shareStatus.includes('link')) shareStatus = '';
-			}, 1800);
+				shareButtonState = { ...shareButtonState, [access]: 'idle' };
+			}, 2200);
 		} catch {
-			shareStatus = 'Failed to create link';
+			shareButtonState = { ...shareButtonState, [access]: 'error' };
+			setTimeout(() => {
+				shareButtonState = { ...shareButtonState, [access]: 'idle' };
+			}, 2000);
 		}
 	}
 
@@ -1089,7 +1093,7 @@
 
 <div class="editor-shell">
 	<aside class="cover-rail" class:has-cover={!!cover}>
-		<Cover {cover} {apiUrl} {title} blocks={tocBlocks} on:change={handleCoverChange} />
+		<Cover {cover} {apiUrl} {title} {pageId} {shareToken} blocks={tocBlocks} on:change={handleCoverChange} />
 	</aside>
 
 	<main class="editor-main" class:dark={darkMode} class:cinematic-on={cinematicEnabled} class:has-bg-color={!!bgColor} style="{themeStyle}{bgColor ? `--note-user-bg:${bgColor};` : ''}">
@@ -1128,17 +1132,62 @@
 				</div>
 
 				{#if canManage && pageId}
-					<div class="share-row">
-						<button type="button" class="share-btn" on:click={() => copyShareLink('view')}>Copy view link</button>
-						<button type="button" class="share-btn" on:click={() => copyShareLink('edit')}>Copy edit link</button>
+					<div class="share-card">
+						<div class="share-card-title">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+							Share page
+						</div>
+						<div class="share-card-btns">
+							<button
+								type="button"
+								class="share-link-btn share-view"
+								class:loading={shareButtonState.view === 'loading'}
+								class:copied={shareButtonState.view === 'copied'}
+								class:error={shareButtonState.view === 'error'}
+								on:click={() => copyShareLink('view')}
+								disabled={shareButtonState.view === 'loading'}
+							>
+								{#if shareButtonState.view === 'copied'}
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+									Copied!
+								{:else if shareButtonState.view === 'error'}
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+									Failed
+								{:else}
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+									View link
+								{/if}
+							</button>
+							<button
+								type="button"
+								class="share-link-btn share-edit"
+								class:loading={shareButtonState.edit === 'loading'}
+								class:copied={shareButtonState.edit === 'copied'}
+								class:error={shareButtonState.edit === 'error'}
+								on:click={() => copyShareLink('edit')}
+								disabled={shareButtonState.edit === 'loading'}
+							>
+								{#if shareButtonState.edit === 'copied'}
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+									Copied!
+								{:else if shareButtonState.edit === 'error'}
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+									Failed
+								{:else}
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+									Edit link
+								{/if}
+							</button>
+						</div>
+						<p class="share-card-hint">Links are one-click copy — anyone with the link gets access.</p>
 					</div>
-					{#if shareStatus}
-						<div class="panel-status">{shareStatus}</div>
-					{/if}
 				{/if}
 
 				{#if !canEdit}
-					<div class="readonly-note">Read-only via shared link</div>
+					<div class="readonly-badge">
+						<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+						Read-only — view access via shared link
+					</div>
 				{/if}
 
 				<div class="mood-control" class:enabled={cinematicEnabled}>
@@ -1251,6 +1300,7 @@
 							data={block.data}
 							{apiUrl}
 							{pageId}
+							{shareToken}
 							{listNumber}
 							published={isPublished}
 							{viewerSessionId}
@@ -1523,35 +1573,119 @@
 		text-decoration: none;
 	}
 
-	.share-row {
+	/* ── Share card ── */
+	.share-card {
+		background: var(--note-surface, #fff);
+		border: 1.5px solid var(--note-border, #e5e7eb);
+		border-radius: 12px;
+		padding: 14px 14px 12px;
 		display: flex;
-		gap: 8px;
-		flex-wrap: wrap;
+		flex-direction: column;
+		gap: 10px;
 	}
 
-	.share-btn {
+	.share-card-title {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 11px;
+		font-weight: 800;
+		letter-spacing: 0.07em;
+		text-transform: uppercase;
+		color: var(--note-muted, #6b7280);
+	}
+
+	.share-card-btns {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 8px;
+	}
+
+	.share-link-btn {
 		display: inline-flex;
 		align-items: center;
-		border: 2px solid var(--note-title, #1a1a1a);
-		background: var(--note-surface, #fff);
-		color: var(--note-title, #1a1a1a);
+		justify-content: center;
+		gap: 6px;
+		padding: 9px 10px;
+		border-radius: 8px;
 		font-size: 12px;
 		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		padding: 7px 10px;
-		border-radius: 6px;
+		letter-spacing: 0.03em;
+		border: 1.5px solid transparent;
 		cursor: pointer;
+		transition: transform 0.12s, box-shadow 0.12s, background 0.15s, color 0.15s, border-color 0.15s;
+		white-space: nowrap;
 	}
 
-	.readonly-note {
+	.share-link-btn:hover:not(:disabled) {
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+	}
+
+	.share-link-btn:active:not(:disabled) {
+		transform: translateY(0);
+	}
+
+	.share-link-btn:disabled {
+		opacity: 0.65;
+		cursor: not-allowed;
+	}
+
+	.share-view {
+		background: #f0f4ff;
+		color: #3b5bdb;
+		border-color: #c5d0ff;
+	}
+
+	.share-view.copied {
+		background: #ecfdf5;
+		color: #166534;
+		border-color: #6ee7b7;
+	}
+
+	.share-view.error {
+		background: #fff1f2;
+		color: #be123c;
+		border-color: #fecdd3;
+	}
+
+	.share-edit {
+		background: var(--note-title, #1a1a1a);
+		color: var(--note-surface, #fff);
+		border-color: var(--note-title, #1a1a1a);
+	}
+
+	.share-edit.copied {
+		background: #ecfdf5;
+		color: #166534;
+		border-color: #6ee7b7;
+	}
+
+	.share-edit.error {
+		background: #fff1f2;
+		color: #be123c;
+		border-color: #fecdd3;
+	}
+
+	.share-card-hint {
+		margin: 0;
+		font-size: 11px;
+		color: var(--note-muted, #9ca3af);
+		line-height: 1.4;
+	}
+
+	/* ── Readonly badge ── */
+	.readonly-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 		font-size: 12px;
-		font-weight: 700;
+		font-weight: 600;
 		color: #92400e;
 		background: #fffbeb;
-		border: 2px solid #92400e;
-		padding: 6px 10px;
-		border-radius: 6px;
+		border: 1.5px solid #fcd34d;
+		padding: 7px 11px;
+		border-radius: 8px;
 	}
 
 	.users-on-page {

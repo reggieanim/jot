@@ -8,6 +8,7 @@
 	export let data: any;
 	export let apiUrl = 'http://localhost:8080';
 	export let pageId = '';
+	export let shareToken = '';
 	export let published = false;
 	export let isDragging = false;
 	export let viewerSessionId = '';
@@ -443,7 +444,11 @@
 		const formData = new FormData();
 		formData.append('file', file);
 
-		const response = await fetch(`${apiUrl}/v1/media/images`, {
+		const encodedPageID = encodeURIComponent(pageId);
+		const shareQuery = shareToken ? `?share=${encodeURIComponent(shareToken)}` : '';
+		const endpoint = pageId ? `/v1/pages/${encodedPageID}/media/images${shareQuery}` : '/v1/media/images';
+
+		const response = await fetch(`${apiUrl}${endpoint}`, {
 			method: 'POST',
 			credentials: 'include',
 			body: formData

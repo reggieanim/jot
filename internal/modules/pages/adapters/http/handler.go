@@ -141,6 +141,7 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, 
 	collab := v1.Group("")
 	collab.Use(auth.OptionalMiddleware(jwtIssuer))
 	{
+		collab.POST("/pages/:pageID/media/images", handler.uploadPageImage)
 		collab.POST("/pages/:pageID/presence", handler.publishPresence)
 		collab.POST("/pages/:pageID/typing", handler.publishTyping)
 		collab.GET("/pages/:pageID", handler.getPage)
@@ -445,6 +446,25 @@ func (handler *Handler) publishTyping(ctx *gin.Context) {
 }
 
 func (handler *Handler) uploadImage(ctx *gin.Context) {
+	if _, ok := auth.GetUserID(ctx); !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization token"})
+		return
+	}
+	handler.handleImageUpload(ctx)
+}
+
+func (handler *Handler) uploadPageImage(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
+	pageID := domain.PageID(ctx.Param("pageID"))
+	shareToken := strings.TrimSpace(ctx.Query("share"))
+	if _, _, err := handler.service.ResolvePageAccess(ctx.Request.Context(), string(uid), pageID, shareToken, domain.ShareAccessEdit); err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	handler.handleImageUpload(ctx)
+}
+
+func (handler *Handler) handleImageUpload(ctx *gin.Context) {
 	const maxUploadSize = 15 << 20
 
 	if handler.media == nil {

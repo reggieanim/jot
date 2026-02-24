@@ -5,6 +5,8 @@
 
 	export let cover: string | null;
 	export let apiUrl = env.PUBLIC_API_URL || 'http://localhost:8080';
+	export let pageId = '';
+	export let shareToken = '';
 	export let readonly = false;
 	export let title = 'Untitled';
 	export let blocks: ApiBlock[] = [];
@@ -87,7 +89,11 @@
 		const formData = new FormData();
 		formData.append('file', file);
 
-		const response = await fetch(`${apiUrl}/v1/media/images`, {
+		const encodedPageID = encodeURIComponent(pageId);
+		const shareQuery = shareToken ? `?share=${encodeURIComponent(shareToken)}` : '';
+		const endpoint = pageId ? `/v1/pages/${encodedPageID}/media/images${shareQuery}` : '/v1/media/images';
+
+		const response = await fetch(`${apiUrl}${endpoint}`, {
 			method: 'POST',
 			credentials: 'include',
 			body: formData
