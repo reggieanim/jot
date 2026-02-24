@@ -245,6 +245,7 @@
 							interactive={proofreadMode}
 							{selectedBlockId}
 							{draftStates}
+							{proofreads}
 							on:select={handleSelectBlock}
 						/>
 

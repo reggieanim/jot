@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
-	import type { ApiBlock } from '$lib/editor/types';
+	import type { ApiBlock, ApiProofread, ApiProofreadAnnotation } from '$lib/editor/types';
 	import { normalizeGalleryItems } from '$lib/editor/blocks';
 	import { htmlFromBlockData } from '$lib/editor/richtext';
 	import { copyTextToClipboard } from '$lib/utils/clipboard';
@@ -11,10 +11,69 @@
 	export let draftStates: Record<string, { kind: string; text: string }> = {};
 	export let anchorPrefix = 'block-';
 	export let pageId = '';
+	export let proofreads: ApiProofread[] = [];
 
 	const dispatch = createEventDispatcher<{ select: { blockId: string } }>();
 
 	let shareToastBlockId = '';
+
+	/* ── Proofread annotation map: blockId → enriched annotations ── */
+	type EnrichedAnnotation = ApiProofreadAnnotation & { authorName: string; proofreadTitle: string; stance: string; proofreadId: string };
+
+	$: annotationMap = buildAnnotationMap(proofreads);
+
+	function buildAnnotationMap(prs: ApiProofread[]): Record<string, EnrichedAnnotation[]> {
+		const map: Record<string, EnrichedAnnotation[]> = {};
+		for (const pr of prs) {
+			if (!pr.annotations) continue;
+			for (const ann of pr.annotations) {
+				if (!ann.block_id) continue;
+				if (!map[ann.block_id]) map[ann.block_id] = [];
+				map[ann.block_id].push({
+					...ann,
+					authorName: pr.author_name,
+					proofreadTitle: pr.title,
+					stance: pr.stance,
+					proofreadId: pr.id
+				});
+			}
+		}
+		return map;
+	}
+
+	/* ── Popup slideshow state ── */
+	let popupBlockId = '';
+	let popupIndex = 0;
+	$: popupAnnotations = popupBlockId ? (annotationMap[popupBlockId] || []) : [];
+	$: popupCurrent = popupAnnotations[popupIndex] || null;
+
+	function openPopup(blockId: string) {
+		if (popupBlockId === blockId) {
+			popupBlockId = '';
+			return;
+		}
+		popupBlockId = blockId;
+		popupIndex = 0;
+	}
+
+	function closePopup() {
+		popupBlockId = '';
+		popupIndex = 0;
+	}
+
+	function popupPrev() {
+		if (popupIndex > 0) popupIndex--;
+	}
+
+	function popupNext() {
+		if (popupIndex < popupAnnotations.length - 1) popupIndex++;
+	}
+
+	function handlePopupKeydown(e: KeyboardEvent) {
+		if (e.key === 'ArrowLeft') popupPrev();
+		else if (e.key === 'ArrowRight') popupNext();
+		else if (e.key === 'Escape') closePopup();
+	}
 
 	function htmlOf(block: ApiBlock) {
 		return htmlFromBlockData(block.data);
@@ -89,8 +148,19 @@
 	}
 
 	onMount(() => {
+		// Close popup on click outside
+		function handleClickOutside(e: MouseEvent) {
+			if (!popupBlockId) return;
+			const target = e.target as HTMLElement;
+			if (!target.closest('.annotation-popup') && !target.closest('.annotation-badge')) {
+				closePopup();
+			}
+		}
+		document.addEventListener('click', handleClickOutside);
+
 		// Cleanup animation frames when component is destroyed
 		return () => {
+			document.removeEventListener('click', handleClickOutside);
 			Object.keys(canvasRafIds).forEach(stopCanvasBlock);
 		};
 	});
@@ -224,6 +294,71 @@
 						</svg>
 					{/if}
 				</button>
+			{/if}
+
+			<!-- Proofread annotation badge + popup -->
+			{#if annotationMap[blockId]?.length}
+				<button
+					type="button"
+					class="annotation-badge"
+					class:active={popupBlockId === blockId}
+					on:click|stopPropagation={() => openPopup(blockId)}
+					title={`${annotationMap[blockId].length} proofread note${annotationMap[blockId].length > 1 ? 's' : ''}`}
+				>
+					<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+					</svg>
+					<span>{annotationMap[blockId].length}</span>
+				</button>
+
+				{#if popupBlockId === blockId && popupCurrent}
+					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<div class="annotation-popup" on:keydown={handlePopupKeydown}>
+						<div class="popup-header">
+							<div class="popup-author">
+								<span class="popup-avatar">{popupCurrent.authorName.charAt(0).toUpperCase()}</span>
+								<div class="popup-meta">
+									<span class="popup-name">{popupCurrent.authorName}</span>
+									<span class="popup-stance stance-{popupCurrent.stance}">{popupCurrent.stance}</span>
+								</div>
+							</div>
+							<button class="popup-close" on:click|stopPropagation={closePopup} aria-label="Close">
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+							</button>
+						</div>
+
+						<div class="popup-kind kind-{popupCurrent.kind}">{popupCurrent.kind}</div>
+
+						<div class="popup-body">
+							<p>{popupCurrent.text}</p>
+						</div>
+
+						{#if popupAnnotations.length > 1}
+							<div class="popup-nav">
+								<button class="popup-arrow" disabled={popupIndex === 0} on:click|stopPropagation={popupPrev} aria-label="Previous">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+								</button>
+								<div class="popup-dots">
+									{#each popupAnnotations as _, i}
+										<button
+											class="popup-dot"
+											class:active={i === popupIndex}
+											on:click|stopPropagation={() => (popupIndex = i)}
+											aria-label={`Note ${i + 1}`}
+										></button>
+									{/each}
+								</div>
+								<button class="popup-arrow" disabled={popupIndex === popupAnnotations.length - 1} on:click|stopPropagation={popupNext} aria-label="Next">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 6 15 12 9 18"/></svg>
+								</button>
+							</div>
+						{/if}
+
+						<a class="popup-link" href={`/proofread/${popupCurrent.proofreadId}`}>
+							View full proofread →
+						</a>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -636,5 +771,263 @@
 		height: auto;
 		border-radius: 4px;
 		box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
+	}
+
+	/* ── Annotation badge (SoundCloud-style) ── */
+
+	.annotation-badge {
+		position: absolute;
+		left: -34px;
+		top: 8px;
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		padding: 3px 7px;
+		border-radius: 10px;
+		border: 1.5px solid var(--note-border, #d1d5db);
+		background: var(--note-surface, #ffffff);
+		color: var(--note-accent, #7c5cff);
+		font-size: 11px;
+		font-weight: 700;
+		cursor: pointer;
+		opacity: 0;
+		transition: opacity 0.15s, transform 0.15s, background 0.15s, border-color 0.15s;
+		z-index: 20;
+		transform: scale(0.92);
+	}
+
+	.block:hover .annotation-badge,
+	.annotation-badge.active {
+		opacity: 1;
+		transform: scale(1);
+	}
+
+	.annotation-badge.active {
+		background: var(--note-accent, #7c5cff);
+		color: #ffffff;
+		border-color: var(--note-accent, #7c5cff);
+	}
+
+	.annotation-badge svg {
+		stroke: currentColor;
+		flex-shrink: 0;
+	}
+
+	/* ── Annotation popup ── */
+
+	.annotation-popup {
+		position: absolute;
+		left: 0;
+		top: calc(100% + 6px);
+		z-index: 50;
+		width: min(360px, calc(100vw - 48px));
+		background: var(--note-surface, #ffffff);
+		border: 1.5px solid var(--note-border, #d1d5db);
+		border-radius: 14px;
+		box-shadow: 0 16px 48px rgba(0, 0, 0, 0.14), 0 4px 12px rgba(0, 0, 0, 0.08);
+		padding: 0;
+		overflow: hidden;
+		animation: popup-enter 0.2s ease-out;
+	}
+
+	@keyframes popup-enter {
+		from {
+			opacity: 0;
+			transform: translateY(-6px) scale(0.97);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+		}
+	}
+
+	.popup-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 12px 14px 8px;
+		border-bottom: 1px solid color-mix(in srgb, var(--note-border, #e5e7eb) 50%, transparent);
+	}
+
+	.popup-author {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.popup-avatar {
+		width: 28px;
+		height: 28px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		background: var(--note-accent, #7c5cff);
+		color: #ffffff;
+		font-size: 12px;
+		font-weight: 800;
+		flex-shrink: 0;
+	}
+
+	.popup-meta {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+
+	.popup-name {
+		font-size: 13px;
+		font-weight: 700;
+		color: var(--note-title, #111827);
+		line-height: 1.2;
+	}
+
+	.popup-stance {
+		font-size: 10px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--note-muted, #6b7280);
+	}
+
+	.popup-stance.stance-assert {
+		color: #16a34a;
+	}
+
+	.popup-stance.stance-debunk {
+		color: #dc2626;
+	}
+
+	.popup-close {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		border: none;
+		border-radius: 6px;
+		background: transparent;
+		color: var(--note-muted, #9ca3af);
+		cursor: pointer;
+		transition: background 0.12s, color 0.12s;
+	}
+
+	.popup-close:hover {
+		background: color-mix(in srgb, var(--note-border, #e5e7eb) 60%, transparent);
+		color: var(--note-title, #111827);
+	}
+
+	.popup-kind {
+		margin: 8px 14px 0;
+		display: inline-block;
+		font-size: 10px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		padding: 2px 8px;
+		border-radius: 4px;
+		background: color-mix(in srgb, var(--note-accent, #7c5cff) 12%, transparent);
+		color: var(--note-accent, #7c5cff);
+	}
+
+	.popup-kind.kind-assert {
+		background: #ecfdf5;
+		color: #16a34a;
+	}
+
+	.popup-kind.kind-debunk {
+		background: #fef2f2;
+		color: #dc2626;
+	}
+
+	.popup-kind.kind-strike {
+		background: #fffbeb;
+		color: #d97706;
+	}
+
+	.popup-body {
+		padding: 8px 14px 10px;
+	}
+
+	.popup-body p {
+		margin: 0;
+		font-size: 13.5px;
+		line-height: 1.55;
+		color: var(--note-text, #1f2328);
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+
+	/* ── Slideshow nav ── */
+
+	.popup-nav {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		padding: 4px 14px 8px;
+	}
+
+	.popup-arrow {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 26px;
+		height: 26px;
+		border: 1px solid var(--note-border, #d1d5db);
+		border-radius: 50%;
+		background: var(--note-surface, #ffffff);
+		color: var(--note-text, #374151);
+		cursor: pointer;
+		transition: background 0.12s, color 0.12s, border-color 0.12s;
+		flex-shrink: 0;
+	}
+
+	.popup-arrow:hover:not(:disabled) {
+		background: var(--note-accent, #7c5cff);
+		color: #ffffff;
+		border-color: var(--note-accent, #7c5cff);
+	}
+
+	.popup-arrow:disabled {
+		opacity: 0.3;
+		cursor: not-allowed;
+	}
+
+	.popup-dots {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+	}
+
+	.popup-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		border: none;
+		padding: 0;
+		background: var(--note-border, #d1d5db);
+		cursor: pointer;
+		transition: background 0.15s, transform 0.15s;
+	}
+
+	.popup-dot.active {
+		background: var(--note-accent, #7c5cff);
+		transform: scale(1.3);
+	}
+
+	.popup-link {
+		display: block;
+		padding: 8px 14px 10px;
+		font-size: 11.5px;
+		font-weight: 600;
+		color: var(--note-accent, #7c5cff);
+		text-decoration: none;
+		border-top: 1px solid color-mix(in srgb, var(--note-border, #e5e7eb) 50%, transparent);
+		transition: background 0.12s;
+	}
+
+	.popup-link:hover {
+		background: color-mix(in srgb, var(--note-accent, #7c5cff) 6%, transparent);
 	}
 </style>

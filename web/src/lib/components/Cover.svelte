@@ -129,6 +129,13 @@
 </script>
 
 <div class="cover-area" class:has-cover={!!cover}>
+	<!-- Expand hint arrow (visible when collapsed) -->
+	<div class="expand-hint" aria-hidden="true">
+		<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+			<polyline points="9 6 15 12 9 18"></polyline>
+		</svg>
+	</div>
+
 	<!-- Background cover image (always behind TOC) -->
 	{#if cover}
 		<img src={cover} alt="page cover" class="cover-bg-image" />
@@ -211,6 +218,49 @@
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
+	}
+
+	/* ── Expand hint arrow ── */
+
+	.expand-hint {
+		position: absolute;
+		top: 50%;
+		right: 2px;
+		transform: translateY(-50%);
+		z-index: 10;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 20px;
+		height: 40px;
+		border-radius: 4px;
+		color: var(--note-muted, #9ca3af);
+		opacity: 0.45;
+		transition: opacity 0.3s ease, transform 0.3s ease, color 0.3s ease;
+		pointer-events: none;
+		animation: hint-breathe 2.4s ease-in-out infinite;
+	}
+
+	.has-cover .expand-hint {
+		color: rgba(255, 255, 255, 0.5);
+	}
+
+	/* Hide when the rail is expanded (parent .cover-rail gets hovered or has-cover) */
+	:global(.cover-rail:hover) .expand-hint,
+	:global(.cover-rail.has-cover) .expand-hint {
+		opacity: 0;
+		transform: translateY(-50%) translateX(6px);
+	}
+
+	@keyframes hint-breathe {
+		0%, 100% {
+			transform: translateY(-50%) translateX(0px);
+			opacity: 0.35;
+		}
+		50% {
+			transform: translateY(-50%) translateX(3px);
+			opacity: 0.65;
+		}
 	}
 
 	/* ── Background image layer ── */
@@ -508,6 +558,10 @@
 
 		.toc-empty {
 			padding: 12px 8px;
+		}
+
+		.expand-hint {
+			display: none;
 		}
 	}
 </style>
