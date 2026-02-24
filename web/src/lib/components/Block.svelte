@@ -445,6 +445,7 @@
 
 		const response = await fetch(`${apiUrl}/v1/media/images`, {
 			method: 'POST',
+			credentials: 'include',
 			body: formData
 		});
 

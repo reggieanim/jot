@@ -22,6 +22,12 @@ export type ApiPage = {
 	deleted_at?: string;
 };
 
+export type ApiFeedPage = ApiPage & {
+	author_username: string;
+	author_display_name: string;
+	author_avatar_url: string;
+};
+
 export type ApiProofreadAnnotation = {
 	id: string;
 	block_id: string;
