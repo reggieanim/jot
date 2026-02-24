@@ -111,6 +111,11 @@ services:
     ports:
       - "8081:8080"
       - "9091:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   # ── SvelteKit Frontend ──
   web:
@@ -127,6 +132,11 @@ services:
       PUBLIC_API_URL: "${PUBLIC_API_URL:-http://jotd:8080}"
     ports:
       - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   pgdata:
