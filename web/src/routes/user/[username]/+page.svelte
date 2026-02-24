@@ -668,6 +668,7 @@
 	.main {
 		padding: 40px 36px 80px;
 		min-height: 100vh;
+		max-width: 1200px;
 	}
 
 	/* ---- LOADING / EMPTY ---- */

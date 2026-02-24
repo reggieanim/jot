@@ -642,6 +642,7 @@
 	.feed-main {
 		padding: 40px 36px 80px;
 		min-height: 100vh;
+		max-width: 1200px;
 		animation: contentFadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
 	}
 
