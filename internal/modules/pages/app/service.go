@@ -182,9 +182,7 @@ func (service *Service) DeletePage(ctx context.Context, ownerID string, pageID d
 	if err != nil {
 		return fmt.Errorf("get page for delete: %w", err)
 	}
-	// TEMP: allow deletion of ownerless pages by any authenticated user.
-	// Revert this after cleaning up orphaned pages.
-	if page.OwnerID != nil && *page.OwnerID != ownerID {
+	if page.OwnerID == nil || *page.OwnerID != ownerID {
 		return errs.ErrForbidden
 	}
 
