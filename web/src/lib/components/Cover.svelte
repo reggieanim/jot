@@ -36,16 +36,16 @@
 					entries.push({ id: block.id || `toc-${idx}`, label: block.data?.language || 'Code', type: 'code', icon: '⌘', index: idx });
 					break;
 				case 'canvas':
-					entries.push({ id: block.id || `toc-${idx}`, label: 'Canvas', type: 'canvas', icon: '◆', index: idx });
+					entries.push({ id: block.id || `toc-${idx}`, label: block.data?.caption || 'Canvas', type: 'canvas', icon: '◆', index: idx });
 					break;
 				case 'image':
-					if (block.data?.url) entries.push({ id: block.id || `toc-${idx}`, label: 'Image', type: 'image', icon: '▣', index: idx });
+					if (block.data?.url) entries.push({ id: block.id || `toc-${idx}`, label: block.data?.caption || 'Image', type: 'image', icon: '▣', index: idx });
 					break;
 				case 'gallery':
 					entries.push({ id: block.id || `toc-${idx}`, label: `Gallery · ${block.data?.items?.length || 0}`, type: 'gallery', icon: '⊞', index: idx });
 					break;
 				case 'embed':
-					if (block.data?.url) entries.push({ id: block.id || `toc-${idx}`, label: 'Embed', type: 'embed', icon: '◈', index: idx });
+					if (block.data?.url) entries.push({ id: block.id || `toc-${idx}`, label: block.data?.caption || 'Embed', type: 'embed', icon: '◈', index: idx });
 					break;
 				case 'quote':
 				case 'callout': {

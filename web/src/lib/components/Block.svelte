@@ -769,6 +769,12 @@
 		dispatch('update', { id, type, data: { ...data, code: canvasCode, width: canvasWidth, height: canvasHeight } });
 	}
 
+	function handleCaptionInput(e: Event) {
+		if (isLocked) return;
+		const caption = (e.target as HTMLInputElement).value;
+		dispatch('update', { id, type, data: { ...data, caption } });
+	}
+
 	$: if (type === 'code') {
 		codeText = data?.code ?? codeText;
 		codeLang = data?.language ?? codeLang;
@@ -952,19 +958,31 @@
 			</div>
 		{:else if type === 'image'}
 			{#if data?.url}
-				<button
-					type="button"
-					class="image-hit"
-					on:click={triggerImageUpload}
-					on:dragover|preventDefault|stopPropagation={() => {}}
-					on:drop={handleMediaDrop}
-				>
-					<img
-						src={data.url}
-						alt="block"
-						class="block-image"
-					/>
-				</button>
+				<figure class="media-figure">
+					<button
+						type="button"
+						class="image-hit"
+						on:click={triggerImageUpload}
+						on:dragover|preventDefault|stopPropagation={() => {}}
+						on:drop={handleMediaDrop}
+					>
+						<img
+							src={data.url}
+							alt={data.caption || 'block'}
+							class="block-image"
+						/>
+					</button>
+					<figcaption class="media-caption">
+						<input
+							type="text"
+							class="caption-input"
+							placeholder="Add a caption…"
+							value={data.caption || ''}
+							on:input={handleCaptionInput}
+							on:keydown|stopPropagation
+						/>
+					</figcaption>
+				</figure>
 			{:else}
 				<button
 					type="button"
@@ -1017,7 +1035,19 @@
 			</div>
 		{:else if type === 'embed'}
 			{#if data?.url}
-				<iframe src={data.url} class="embed-frame" title="Embedded content"></iframe>
+				<figure class="media-figure">
+					<iframe src={data.url} class="embed-frame" title="Embedded content"></iframe>
+					<figcaption class="media-caption">
+						<input
+							type="text"
+							class="caption-input"
+							placeholder="Add a caption…"
+							value={data.caption || ''}
+							on:input={handleCaptionInput}
+							on:keydown|stopPropagation
+						/>
+					</figcaption>
+				</figure>
 			{:else}
 				<div class="embed-placeholder">
 					<input
@@ -1083,6 +1113,16 @@
 				<div class="canvas-preview">
 					<canvas bind:this={canvasEl} width={canvasWidth} height={canvasHeight} class="canvas-el"></canvas>
 				</div>
+				<figcaption class="media-caption canvas-caption">
+					<input
+						type="text"
+						class="caption-input"
+						placeholder="Add a caption…"
+						value={data.caption || ''}
+						on:input={handleCaptionInput}
+						on:keydown|stopPropagation
+					/>
+				</figcaption>
 			</div>
 		{:else}
 			<div
@@ -1364,6 +1404,95 @@
 
 	.image-input {
 		display: none;
+	}
+
+	/* ---- Media figure + caption ---- */
+	.media-figure {
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		width: 100%;
+	}
+
+	.media-caption {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 6px 0 2px;
+		position: relative;
+	}
+
+	.media-caption::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 32px;
+		height: 2px;
+		border-radius: 1px;
+		background: color-mix(in srgb, var(--note-accent, #7c5cff) 24%, transparent);
+		transition: width 0.2s ease;
+	}
+
+	.media-caption:focus-within::before {
+		width: 64px;
+		background: color-mix(in srgb, var(--note-accent, #7c5cff) 50%, transparent);
+	}
+
+	.caption-input {
+		width: 100%;
+		max-width: 480px;
+		text-align: center;
+		border: none;
+		background: transparent;
+		color: var(--note-muted, #6b7280);
+		font-size: 13px;
+		font-style: italic;
+		font-family: inherit;
+		line-height: 1.5;
+		padding: 4px 8px;
+		outline: none;
+		transition: color 0.15s, border-color 0.15s;
+	}
+
+	.caption-input:focus {
+		color: var(--note-text, #1f2328);
+	}
+
+	.caption-input::placeholder {
+		color: color-mix(in srgb, var(--note-muted, #9ca3af) 60%, transparent);
+		font-style: italic;
+	}
+
+	.canvas-caption {
+		padding: 8px 12px 6px;
+		background: #1e1e2e;
+		border-top: 1px solid #313244;
+	}
+
+	.canvas-caption::before {
+		background: color-mix(in srgb, #cba6f7 30%, transparent);
+	}
+
+	.canvas-caption:focus-within::before {
+		background: color-mix(in srgb, #cba6f7 60%, transparent);
+	}
+
+	.canvas-caption .caption-input {
+		color: #6c7086;
+		font-size: 12px;
+	}
+
+	.canvas-caption .caption-input:focus {
+		color: #cdd6f4;
+	}
+
+	.canvas-caption .caption-input::placeholder {
+		color: #45475a;
 	}
 
 	.gallery-block {
@@ -1930,6 +2059,12 @@
 			gap: 8px;
 			border-radius: 8px;
 			font-size: 13px;
+		}
+
+		/* Caption responsive */
+		.caption-input {
+			font-size: 12px;
+			max-width: 100%;
 		}
 
 		/* Slash menu responsive */

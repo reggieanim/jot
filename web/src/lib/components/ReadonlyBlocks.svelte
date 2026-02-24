@@ -224,7 +224,12 @@
 					</div>
 				{:else if block.type === 'image'}
 					{#if block.data?.url}
-						<img src={block.data.url} alt="block" class="block-image" />
+						<figure class="media-figure">
+							<img src={block.data.url} alt={block.data.caption || 'block'} class="block-image" />
+							{#if block.data.caption}
+								<figcaption class="media-caption">{block.data.caption}</figcaption>
+							{/if}
+						</figure>
 					{/if}
 				{:else if block.type === 'gallery'}
 					{@const items = normalizeGalleryItems(block.data)}
@@ -254,19 +259,29 @@
 				</div>
 			{:else if block.type === 'canvas'}
 				{@const cBlockId = blockIdOf(block, index)}
-				<div class="canvas-block canvas-clean">
-					<div class="canvas-preview">
-						<canvas
-							use:bindCanvas={cBlockId}
-							width={block.data?.width || 600}
-							height={block.data?.height || 400}
-							class="canvas-el"
-						></canvas>
+				<figure class="media-figure">
+					<div class="canvas-block canvas-clean">
+						<div class="canvas-preview">
+							<canvas
+								use:bindCanvas={cBlockId}
+								width={block.data?.width || 600}
+								height={block.data?.height || 400}
+								class="canvas-el"
+							></canvas>
+						</div>
 					</div>
-				</div>
+					{#if block.data?.caption}
+						<figcaption class="media-caption">{block.data.caption}</figcaption>
+					{/if}
+				</figure>
 			{:else if block.type === 'embed'}
 				{#if block.data?.url}
-					<iframe src={block.data.url} class="embed-frame" title="Embedded content"></iframe>
+					<figure class="media-figure">
+						<iframe src={block.data.url} class="embed-frame" title="Embedded content"></iframe>
+						{#if block.data.caption}
+							<figcaption class="media-caption">{block.data.caption}</figcaption>
+						{/if}
+					</figure>
 				{/if}
 			{:else}
 				<div class="editable readonly-paragraph" class:dimmed={dimOriginal} class:strike={dimOriginal && draftKind === 'strike'}>{@html htmlOf(block)}</div>
@@ -553,6 +568,41 @@
 		max-width: 100%;
 		border-radius: 4px;
 		margin: 8px 0;
+	}
+
+	/* ---- Media figure + caption (readonly) ---- */
+	.media-figure {
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		width: 100%;
+	}
+
+	.media-caption {
+		width: 100%;
+		max-width: 480px;
+		text-align: center;
+		color: var(--note-muted, #6b7280);
+		font-size: 13px;
+		font-style: italic;
+		font-family: inherit;
+		line-height: 1.5;
+		padding: 8px 8px 2px;
+		position: relative;
+	}
+
+	.media-caption::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 32px;
+		height: 2px;
+		border-radius: 1px;
+		background: color-mix(in srgb, var(--note-accent, #7c5cff) 24%, transparent);
 	}
 
 	.gallery-grid {
@@ -1062,6 +1112,12 @@
 		.embed-frame {
 			height: 260px;
 			border-radius: 8px;
+		}
+
+		.media-caption {
+			font-size: 12px;
+			max-width: 100%;
+			padding: 6px 4px 2px;
 		}
 
 		.annotation-badge {
