@@ -1019,15 +1019,64 @@
 			grid-template-columns: 1fr;
 		}
 
+		.profile-page:has(.sidebar:hover) {
+			grid-template-columns: 1fr;
+		}
+
 		.sidebar {
 			position: relative;
 			height: auto;
 			border-right: none;
 			border-bottom: 3px solid #1a1a1a;
+			overflow: visible;
 		}
 
+		/* On mobile, show everything expanded — no hover gating */
 		.sidebar-cover {
-			height: 220px;
+			height: 240px;
+		}
+
+		.sidebar-brand {
+			opacity: 0.85 !important;
+			pointer-events: auto !important;
+		}
+
+		.sidebar-profile {
+			padding: 0 24px 24px !important;
+			margin-top: -36px !important;
+			align-items: flex-start !important;
+		}
+
+		.sidebar-avatar {
+			width: 72px !important;
+			height: 72px !important;
+		}
+
+		.sidebar-name,
+		.sidebar-username,
+		.sidebar-bio {
+			opacity: 1 !important;
+			max-height: none !important;
+		}
+
+		.sidebar-stats {
+			opacity: 1 !important;
+			max-height: none !important;
+			flex-wrap: wrap;
+		}
+
+		.sidebar-follow {
+			opacity: 1 !important;
+			max-height: none !important;
+		}
+
+		.sidebar-nav {
+			opacity: 1 !important;
+			max-height: none !important;
+		}
+
+		.sidebar-footer {
+			opacity: 1 !important;
 		}
 
 		.main {
@@ -1044,12 +1093,40 @@
 			height: 180px;
 		}
 
+		.sidebar-profile {
+			padding: 0 16px 20px !important;
+			margin-top: -30px !important;
+		}
+
+		.sidebar-avatar {
+			width: 60px !important;
+			height: 60px !important;
+		}
+
+		.sidebar-name {
+			font-size: 18px;
+		}
+
 		.masonry {
 			columns: 2;
 		}
 
 		.sidebar-stats {
 			gap: 16px;
+		}
+
+		.main {
+			padding: 20px 12px 48px;
+		}
+	}
+
+	@media (max-width: 380px) {
+		.masonry {
+			columns: 1;
+		}
+
+		.sidebar-cover {
+			height: 160px;
 		}
 	}
 </style>

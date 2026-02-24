@@ -339,7 +339,10 @@
 		background: transparent;
 		border-right: 1px solid transparent;
 		overflow: hidden;
-		transition: width 0.2s ease, min-width 0.2s ease, flex-basis 0.2s ease, border-color 0.2s ease;
+		transition: width 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+			min-width 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+			flex-basis 0.45s cubic-bezier(0.4, 0, 0.2, 1),
+			border-color 0.3s ease;
 	}
 
 	.cover-rail:hover,
@@ -363,6 +366,7 @@
 		background: radial-gradient(circle at top, color-mix(in srgb, var(--note-accent, #7c5cff) var(--note-wash, 8%), var(--note-bg, #ffffff)) 0%, var(--note-bg, #ffffff) 48%);
 		position: relative;
 		overflow: hidden;
+		transition: flex 0.45s cubic-bezier(0.4, 0, 0.2, 1);
 	}
 
 	.editor-main.dark {
@@ -425,6 +429,18 @@
 		box-sizing: border-box;
 		padding: 0 64px;
 		background: transparent;
+		animation: contentFadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) both;
+	}
+
+	@keyframes contentFadeIn {
+		from {
+			opacity: 0;
+			transform: translateY(12px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.page-header {
@@ -699,7 +715,18 @@
 		.cover-rail {
 			width: 100%;
 			min-width: 0;
-			height: 220px;
+			height: auto;
+			max-height: 280px;
+			flex: 0 0 auto;
+			border-right: none;
+			border-bottom: 1px solid var(--note-rail-border, #f1f3f5);
+			transition: max-height 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+		}
+
+		.cover-rail:not(.has-cover) {
+			max-height: 0;
+			border-bottom: none;
+			overflow: hidden;
 		}
 
 		.cover-rail:hover,
@@ -710,7 +737,7 @@
 		}
 
 		.editor-wrapper {
-			padding: 0 16px;
+			padding: 0 24px;
 		}
 
 		.page-header {
@@ -728,6 +755,24 @@
 	}
 
 	@media (max-width: 680px) {
+		.cover-rail.has-cover {
+			max-height: 220px;
+		}
+
+		.editor-wrapper {
+			padding: 0 12px;
+		}
+
+		.page-header {
+			margin: 20px 0 16px;
+		}
+	}
+
+	@media (max-width: 400px) {
+		.cover-rail.has-cover {
+			max-height: 180px;
+		}
+
 		.editor-wrapper {
 			padding: 0 8px;
 		}
