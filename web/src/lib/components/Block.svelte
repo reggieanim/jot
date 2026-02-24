@@ -809,10 +809,19 @@
 		clearTimeout(saveTimeout);
 		stopCanvas();
 	});
+
+	function handleHandleClick(e: MouseEvent) {
+		if (isLocked) return;
+		const btn = e.currentTarget as HTMLElement;
+		const rect = btn.getBoundingClientRect();
+		slashMenuPosition = { x: rect.left, y: rect.bottom + 6 };
+		showSlashMenu = !showSlashMenu;
+		selectedMenuIndex = 0;
+	}
 </script>
 
 <div class="block" class:dragging={isDragging} class:locked={isLocked} data-block-id={id}>
-	<button type="button" class="block-handle" draggable="true" aria-label="Drag block" on:dragstart={() => dispatch('dragstart', { id })}>
+	<button type="button" class="block-handle" draggable="true" aria-label="Drag or click for menu" on:dragstart={() => dispatch('dragstart', { id })} on:click={handleHandleClick}>
 		<span class="handle-icon">⋮⋮</span>
 	</button>
 
