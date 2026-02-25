@@ -17,6 +17,10 @@
 	export let listNumber = 1;
 
 	let showShareToast = false;
+	let showShareMenu = false;
+	let supportsNativeShare = false;
+	let shareMenuEl: HTMLDivElement;
+	let shareBtnEl: HTMLButtonElement;
 
 	const dispatch = createEventDispatcher();
 
@@ -426,14 +430,47 @@
 		dispatch('delete', { id });
 	}
 
-	async function handleShare() {
-		if (!pageId || !id) return;
+	function embedUrlForCurrentBlock(): string {
+		if (!pageId || !id) return '';
 		const origin = typeof window !== 'undefined' ? window.location.origin : '';
-		const embedUrl = `${origin}/embed/${encodeURIComponent(pageId)}/${encodeURIComponent(id)}`;
+		return `${origin}/embed/${encodeURIComponent(pageId)}/${encodeURIComponent(id)}`;
+	}
+
+	function socialShareUrl(platform: 'x' | 'facebook' | 'linkedin', url: string): string {
+		const encoded = encodeURIComponent(url);
+		if (platform === 'x') return `https://twitter.com/intent/tweet?url=${encoded}`;
+		if (platform === 'facebook') return `https://www.facebook.com/sharer/sharer.php?u=${encoded}`;
+		return `https://www.linkedin.com/sharing/share-offsite/?url=${encoded}`;
+	}
+
+	function toggleShareMenu() {
+		if (!pageId || !id) return;
+		showShareMenu = !showShareMenu;
+	}
+
+	function closeShareMenu() {
+		showShareMenu = false;
+	}
+
+	async function copyShareLink() {
+		const embedUrl = embedUrlForCurrentBlock();
+		if (!embedUrl) return;
 		const copied = await copyTextToClipboard(embedUrl);
 		if (copied) {
 			showShareToast = true;
 			setTimeout(() => (showShareToast = false), 2000);
+			showShareMenu = false;
+		}
+	}
+
+	async function shareNatively() {
+		const embedUrl = embedUrlForCurrentBlock();
+		if (!embedUrl || !supportsNativeShare) return;
+		try {
+			await navigator.share({ url: embedUrl });
+			showShareMenu = false;
+		} catch {
+			// user cancelled or share failed
 		}
 	}
 
@@ -847,13 +884,23 @@
 	}
 
 	onMount(() => {
+		supportsNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 		if (localText === '') {
 			focus();
 		}
 		const listener = () => refreshSelectionState();
 		document.addEventListener('selectionchange', listener);
+		const handleDocumentClick = (event: MouseEvent) => {
+			if (!showShareMenu) return;
+			const target = event.target as Node;
+			if (shareMenuEl?.contains(target)) return;
+			if (shareBtnEl?.contains(target)) return;
+			showShareMenu = false;
+		};
+		document.addEventListener('mousedown', handleDocumentClick);
 		return () => {
 			document.removeEventListener('selectionchange', listener);
+			document.removeEventListener('mousedown', handleDocumentClick);
 		};
 	});
 
@@ -1214,7 +1261,7 @@
 	<input bind:this={galleryInputEl} type="file" accept="image/*" class="image-input" multiple on:change={handleGalleryUpload} />
 
 	{#if published && pageId}
-		<button class="share-btn" title={showShareToast ? 'Copied!' : 'Copy embed link'} on:click={handleShare}>
+		<button bind:this={shareBtnEl} class="share-btn" title={showShareToast ? 'Copied!' : 'Share block'} on:click|stopPropagation={toggleShareMenu}>
 			{#if showShareToast}
 				<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
 			{:else}
@@ -1225,6 +1272,19 @@
 				</svg>
 			{/if}
 		</button>
+		{#if showShareMenu}
+			<div bind:this={shareMenuEl} class="share-menu" role="menu" aria-label="Share block menu">
+				<button type="button" class="share-menu-item" on:click={copyShareLink}>Copy link</button>
+				{#if supportsNativeShare}
+					<button type="button" class="share-menu-item" on:click={shareNatively}>Share…</button>
+				{/if}
+				{#if embedUrlForCurrentBlock()}
+					<a class="share-menu-item" href={socialShareUrl('x', embedUrlForCurrentBlock())} target="_blank" rel="noreferrer">Share to X</a>
+					<a class="share-menu-item" href={socialShareUrl('facebook', embedUrlForCurrentBlock())} target="_blank" rel="noreferrer">Share to Facebook</a>
+					<a class="share-menu-item" href={socialShareUrl('linkedin', embedUrlForCurrentBlock())} target="_blank" rel="noreferrer">Share to LinkedIn</a>
+				{/if}
+			</div>
+		{/if}
 	{/if}
 	<button class="delete-btn" title="Delete" on:click={handleDelete}>✕</button>
 </div>
@@ -1743,6 +1803,45 @@
 		border-color: var(--note-accent, #7c5cff);
 	}
 
+	.share-menu {
+		position: absolute;
+		right: -32px;
+		top: 56px;
+		z-index: 40;
+		min-width: 168px;
+		display: flex;
+		flex-direction: column;
+		background: #fff;
+		border: 2px solid #1a1a1a;
+		border-radius: 8px;
+		box-shadow: 6px 6px 0 #1a1a1a;
+		overflow: hidden;
+	}
+
+	.share-menu-item {
+		display: block;
+		width: 100%;
+		padding: 8px 10px;
+		text-align: left;
+		font: inherit;
+		font-size: 12px;
+		font-weight: 700;
+		color: #1a1a1a;
+		text-decoration: none;
+		background: #fff;
+		border: 0;
+		border-bottom: 1px solid #ececec;
+		cursor: pointer;
+	}
+
+	.share-menu-item:last-child {
+		border-bottom: 0;
+	}
+
+	.share-menu-item:hover {
+		background: #f5f5f3;
+	}
+
 	.block.locked {
 		outline: 1px solid color-mix(in srgb, var(--note-accent, #7c5cff) 28%, transparent);
 		background: color-mix(in srgb, var(--note-accent, #7c5cff) 8%, transparent);
@@ -2203,6 +2302,12 @@
 			top: 0;
 			opacity: 0.5;
 			margin-left: 4px;
+		}
+
+		.share-menu {
+			right: 0;
+			top: 34px;
+			box-shadow: 4px 4px 0 #1a1a1a;
 		}
 
 		/* Floating toolbar becomes full-width anchored */

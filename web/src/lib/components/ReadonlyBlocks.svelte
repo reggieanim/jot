@@ -17,6 +17,8 @@
 	const dispatch = createEventDispatcher<{ select: { blockId: string } }>();
 
 	let shareToastBlockId = '';
+	let shareMenuBlockId = '';
+	let supportsNativeShare = false;
 
 	/* ── Proofread annotation map: blockId → enriched annotations ── */
 	type EnrichedAnnotation = ApiProofreadAnnotation & { authorName: string; proofreadTitle: string; stance: string; proofreadId: string };
@@ -178,12 +180,25 @@
 	}
 
 	onMount(() => {
+		supportsNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
 		// Close popup on click outside
 		function handleClickOutside(e: MouseEvent) {
-			if (!popupBlockId) return;
 			const target = e.target as HTMLElement;
-			if (!target.closest('.annotation-popup') && !target.closest('.annotation-badge')) {
+			if (
+				popupBlockId &&
+				!target.closest('.annotation-popup') &&
+				!target.closest('.annotation-badge')
+			) {
 				closePopup();
+			}
+
+			if (
+				shareMenuBlockId &&
+				!target.closest('.share-menu') &&
+				!target.closest('.share-btn')
+			) {
+				shareMenuBlockId = '';
 			}
 		}
 		document.addEventListener('click', handleClickOutside);
@@ -195,14 +210,42 @@
 		};
 	});
 
-	async function handleShare(blockId: string) {
-		if (!pageId || !blockId) return;
+	function embedUrlForBlock(blockId: string): string {
+		if (!pageId || !blockId) return '';
 		const origin = typeof window !== 'undefined' ? window.location.origin : '';
-		const embedUrl = `${origin}/embed/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}`;
+		return `${origin}/embed/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}`;
+	}
+
+	function socialShareUrl(platform: 'x' | 'facebook' | 'linkedin', url: string): string {
+		const encoded = encodeURIComponent(url);
+		if (platform === 'x') return `https://twitter.com/intent/tweet?url=${encoded}`;
+		if (platform === 'facebook') return `https://www.facebook.com/sharer/sharer.php?u=${encoded}`;
+		return `https://www.linkedin.com/sharing/share-offsite/?url=${encoded}`;
+	}
+
+	function toggleShareMenu(blockId: string) {
+		shareMenuBlockId = shareMenuBlockId === blockId ? '' : blockId;
+	}
+
+	async function handleCopyShare(blockId: string) {
+		const embedUrl = embedUrlForBlock(blockId);
+		if (!embedUrl) return;
 		const copied = await copyTextToClipboard(embedUrl);
 		if (copied) {
 			shareToastBlockId = blockId;
+			shareMenuBlockId = '';
 			setTimeout(() => (shareToastBlockId = ''), 2000);
+		}
+	}
+
+	async function handleNativeShare(blockId: string) {
+		const embedUrl = embedUrlForBlock(blockId);
+		if (!embedUrl || !supportsNativeShare) return;
+		try {
+			await navigator.share({ url: embedUrl });
+			shareMenuBlockId = '';
+		} catch {
+			// user cancelled or share failed
 		}
 	}
 </script>
@@ -323,8 +366,8 @@
 				<button
 					type="button"
 					class="share-btn"
-					title={shareToastBlockId === blockId ? 'Copied!' : 'Copy embed link'}
-					on:click|stopPropagation={() => handleShare(blockId)}
+					title={shareToastBlockId === blockId ? 'Copied!' : 'Share block'}
+					on:click|stopPropagation={() => toggleShareMenu(blockId)}
 				>
 					{#if shareToastBlockId === blockId}
 						<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
@@ -336,6 +379,19 @@
 						</svg>
 					{/if}
 				</button>
+				{#if shareMenuBlockId === blockId}
+					<div class="share-menu" role="menu" aria-label="Share block menu">
+						<button type="button" class="share-menu-item" on:click={() => handleCopyShare(blockId)}>Copy link</button>
+						{#if supportsNativeShare}
+							<button type="button" class="share-menu-item" on:click={() => handleNativeShare(blockId)}>Share…</button>
+						{/if}
+						{#if embedUrlForBlock(blockId)}
+							<a class="share-menu-item" href={socialShareUrl('x', embedUrlForBlock(blockId))} target="_blank" rel="noreferrer">Share to X</a>
+							<a class="share-menu-item" href={socialShareUrl('facebook', embedUrlForBlock(blockId))} target="_blank" rel="noreferrer">Share to Facebook</a>
+							<a class="share-menu-item" href={socialShareUrl('linkedin', embedUrlForBlock(blockId))} target="_blank" rel="noreferrer">Share to LinkedIn</a>
+						{/if}
+					</div>
+				{/if}
 			{/if}
 
 			<!-- Proofread annotation badge + popup -->
@@ -467,6 +523,43 @@
 		background: color-mix(in srgb, var(--note-accent, #7c5cff) 18%, var(--note-surface, #ffffff));
 		color: var(--note-accent, #7c5cff);
 		border-color: var(--note-accent, #7c5cff);
+	}
+
+	.share-menu {
+		position: absolute;
+		right: -32px;
+		top: 36px;
+		min-width: 170px;
+		background: var(--note-surface, #ffffff);
+		border: 1px solid var(--note-border, #d1d5db);
+		border-radius: 10px;
+		box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+		overflow: hidden;
+		z-index: 40;
+	}
+
+	.share-menu-item {
+		display: block;
+		width: 100%;
+		padding: 9px 11px;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--note-text, #374151);
+		text-align: left;
+		text-decoration: none;
+		background: transparent;
+		border: 0;
+		border-bottom: 1px solid color-mix(in srgb, var(--note-border, #d1d5db) 52%, transparent);
+		cursor: pointer;
+	}
+
+	.share-menu-item:last-child {
+		border-bottom: 0;
+	}
+
+	.share-menu-item:hover {
+		background: color-mix(in srgb, var(--note-accent, #7c5cff) 10%, var(--note-surface, #ffffff));
+		color: var(--note-accent, #7c5cff);
 	}
 
 	.block.interactive {
@@ -1186,6 +1279,18 @@
 	@media (max-width: 680px) {
 		.block {
 			padding: 6px 4px;
+		}
+
+		.share-btn {
+			opacity: 1;
+			right: 2px;
+			top: 2px;
+		}
+
+		.share-menu {
+			right: 2px;
+			top: 34px;
+			min-width: 156px;
 		}
 
 		.heading-1 { font-size: 24px; margin: 8px 0 2px; }
