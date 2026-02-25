@@ -65,9 +65,15 @@ func (repo *inMemoryRepo) GetByID(_ context.Context, pageID domain.PageID) (doma
 	return repo.store[pageID], nil
 }
 
-func (repo *inMemoryRepo) SetPublished(_ context.Context, pageID domain.PageID, published bool) error {
+func (repo *inMemoryRepo) GetByIDWithAuthor(_ context.Context, pageID domain.PageID) (domain.FeedPage, error) {
+	page := repo.store[pageID]
+	return domain.FeedPage{Page: page}, nil
+}
+
+func (repo *inMemoryRepo) SetPublished(_ context.Context, pageID domain.PageID, published bool, unlisted bool) error {
 	page := repo.store[pageID]
 	page.Published = published
+	page.Unlisted = unlisted
 	if published {
 		now := time.Now().UTC()
 		page.PublishedAt = &now
@@ -140,7 +146,7 @@ func (repo *inMemoryRepo) ListArchivedPages(_ context.Context, ownerID string) (
 func (repo *inMemoryRepo) ListPublishedPagesByOwner(_ context.Context, ownerID string) ([]domain.Page, error) {
 	pages := make([]domain.Page, 0)
 	for _, page := range repo.store {
-		if page.DeletedAt == nil && page.Published && page.OwnerID != nil && *page.OwnerID == ownerID {
+		if page.DeletedAt == nil && page.Published && !page.Unlisted && page.OwnerID != nil && *page.OwnerID == ownerID {
 			pages = append(pages, page)
 		}
 	}
@@ -150,7 +156,7 @@ func (repo *inMemoryRepo) ListPublishedPagesByOwner(_ context.Context, ownerID s
 func (repo *inMemoryRepo) ListPublishedFeed(_ context.Context, limit, offset int, _ string) ([]domain.FeedPage, error) {
 	all := make([]domain.FeedPage, 0)
 	for _, page := range repo.store {
-		if page.DeletedAt == nil && page.Published {
+		if page.DeletedAt == nil && page.Published && !page.Unlisted {
 			all = append(all, domain.FeedPage{Page: page})
 		}
 	}

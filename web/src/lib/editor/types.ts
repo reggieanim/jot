@@ -10,6 +10,7 @@ export type ApiPage = {
 	title: string;
 	cover?: string;
 	published?: boolean;
+	unlisted?: boolean;
 	published_at?: string;
 	dark_mode?: boolean;
 	cinematic?: boolean;

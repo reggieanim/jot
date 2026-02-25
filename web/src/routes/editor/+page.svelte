@@ -23,6 +23,7 @@
 	let titleEl: HTMLDivElement;
 	let cover: string | null = null;
 	let isPublished = false;
+	let isUnlisted = false;
 	let blocks: ApiBlock[] = [{ id: generateId(), type: 'paragraph', position: 0, data: { text: '' } }];
 	let status = '';
 	let controlsOpen = false;
@@ -507,6 +508,7 @@
 			if (titleEl) titleEl.textContent = title;
 			cover = page.cover || null;
 			isPublished = !!page.published;
+			isUnlisted = !!page.unlisted;
 			darkMode = page.dark_mode ?? darkMode;
 			cinematicEnabled = page.cinematic ?? false;
 			moodStrength = page.mood ?? moodStrength;
@@ -547,6 +549,7 @@
 			if (titleEl) titleEl.textContent = title;
 			cover = page.cover || cover;
 			isPublished = !!page.published;
+			isUnlisted = !!page.unlisted;
 			darkMode = page.dark_mode ?? darkMode;
 			cinematicEnabled = page.cinematic ?? false;
 			moodStrength = page.mood ?? moodStrength;
@@ -594,12 +597,13 @@
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				credentials: 'include',
-				body: JSON.stringify({ published: nextPublished })
+				body: JSON.stringify({ published: nextPublished, unlisted: nextPublished ? isUnlisted : false })
 			});
 			if (!response.ok) throw new Error('publish update failed');
 			const payload = await response.json();
 			const updated = payload?.page as ApiPage | undefined;
 			isPublished = updated?.published ?? nextPublished;
+			isUnlisted = updated?.unlisted ?? (nextPublished ? isUnlisted : false);
 			if (updated?.updated_at) {
 				pageRevision = updated.updated_at;
 			}
@@ -609,6 +613,36 @@
 			}, 1600);
 		} catch {
 			status = 'Publish update failed.';
+		}
+	}
+
+	async function toggleUnlisted(e: Event) {
+		if (!canManage) return;
+		isUnlisted = (e.target as HTMLInputElement).checked;
+		if (!isPublished || !pageId) return;
+
+		status = 'Updating visibility…';
+		try {
+			const response = await fetch(withShare(`/v1/pages/${pageId}/publish`), {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
+				body: JSON.stringify({ published: true, unlisted: isUnlisted })
+			});
+			if (!response.ok) throw new Error('visibility update failed');
+			const payload = await response.json();
+			const updated = payload?.page as ApiPage | undefined;
+			isPublished = updated?.published ?? true;
+			isUnlisted = updated?.unlisted ?? isUnlisted;
+			if (updated?.updated_at) {
+				pageRevision = updated.updated_at;
+			}
+			status = isUnlisted ? 'Published as unlisted.' : 'Published publicly.';
+			setTimeout(() => {
+				if (status === 'Published as unlisted.' || status === 'Published publicly.') status = '';
+			}, 1600);
+		} catch {
+			status = 'Visibility update failed.';
 		}
 	}
 
@@ -1148,6 +1182,12 @@
 							{isPublished ? 'Published' : 'Publish page'}
 						</button>
 					{/if}
+					{#if canManage}
+						<label class="unlisted-toggle" title="Unlisted pages are published but hidden from feed and profile.">
+							<input type="checkbox" checked={isUnlisted} on:change={toggleUnlisted} />
+							<span>Unlisted</span>
+						</label>
+					{/if}
 					{#if isPublished && pageId}
 						<a class="public-link" href={`/public/${pageId}`} target="_blank" rel="noreferrer">Open public</a>
 					{/if}
@@ -1602,6 +1642,27 @@
 		align-items: center;
 		gap: 8px;
 		flex-wrap: wrap;
+	}
+
+	.unlisted-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 11px;
+		font-weight: 700;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: var(--note-muted, #6b7280);
+		padding: 6px 8px;
+		border: 1.5px dashed var(--note-border, #d1d5db);
+		border-radius: 6px;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.unlisted-toggle input {
+		margin: 0;
+		accent-color: var(--note-accent, #7c5cff);
 	}
 
 	.publish-btn {

@@ -37,20 +37,20 @@ type pageEvent struct {
 }
 
 type typingPresence struct {
-	PageID    string `json:"page_id"`
-	BlockID   string `json:"block_id"`
-	SessionID string `json:"session_id"`
-	UserName  string `json:"user_name"`
+	PageID        string `json:"page_id"`
+	BlockID       string `json:"block_id"`
+	SessionID     string `json:"session_id"`
+	UserName      string `json:"user_name"`
 	UserAvatarURL string `json:"user_avatar_url,omitempty"`
-	IsTyping  bool   `json:"is_typing"`
+	IsTyping      bool   `json:"is_typing"`
 }
 
 type pagePresence struct {
-	PageID    string `json:"page_id"`
-	SessionID string `json:"session_id"`
-	UserName  string `json:"user_name"`
+	PageID        string `json:"page_id"`
+	SessionID     string `json:"session_id"`
+	UserName      string `json:"user_name"`
 	UserAvatarURL string `json:"user_avatar_url,omitempty"`
-	IsOnline  bool   `json:"is_online"`
+	IsOnline      bool   `json:"is_online"`
 }
 
 type streamEvent struct {
@@ -91,7 +91,8 @@ type updatePageMetaRequest struct {
 }
 
 type publishPageRequest struct {
-	Published bool `json:"published"`
+	Published bool  `json:"published"`
+	Unlisted  *bool `json:"unlisted,omitempty"`
 }
 
 type createProofreadRequest struct {
@@ -103,18 +104,18 @@ type createProofreadRequest struct {
 }
 
 type publishTypingRequest struct {
-	BlockID   string `json:"block_id"`
-	SessionID string `json:"session_id"`
-	UserName  string `json:"user_name"`
+	BlockID       string `json:"block_id"`
+	SessionID     string `json:"session_id"`
+	UserName      string `json:"user_name"`
 	UserAvatarURL string `json:"user_avatar_url,omitempty"`
-	IsTyping  bool   `json:"is_typing"`
+	IsTyping      bool   `json:"is_typing"`
 }
 
 type publishPresenceRequest struct {
-	SessionID string `json:"session_id"`
-	UserName  string `json:"user_name"`
+	SessionID     string `json:"session_id"`
+	UserName      string `json:"user_name"`
 	UserAvatarURL string `json:"user_avatar_url,omitempty"`
-	IsOnline  bool   `json:"is_online"`
+	IsOnline      bool   `json:"is_online"`
 }
 
 type createShareLinkRequest struct {
@@ -249,7 +250,7 @@ func (handler *Handler) setPagePublished(ctx *gin.Context) {
 		return
 	}
 
-	page, err := handler.service.SetPagePublished(ctx.Request.Context(), string(uid), pageID, body.Published)
+	page, err := handler.service.SetPagePublished(ctx.Request.Context(), string(uid), pageID, body.Published, body.Unlisted)
 	if err != nil {
 		handler.handleError(ctx, err)
 		return
@@ -287,7 +288,7 @@ func makeOrganicReaderKey(ctx *gin.Context) string {
 func (handler *Handler) getPublicBlock(ctx *gin.Context) {
 	pageID := domain.PageID(ctx.Param("pageID"))
 	blockID := ctx.Param("blockID")
-	block, page, err := handler.service.GetPublicBlock(ctx.Request.Context(), pageID, blockID)
+	block, page, err := handler.service.GetPublicBlockWithAuthor(ctx.Request.Context(), pageID, blockID)
 	if err != nil {
 		handler.handleError(ctx, err)
 		return
@@ -295,13 +296,16 @@ func (handler *Handler) getPublicBlock(ctx *gin.Context) {
 	ctx.JSON(200, gin.H{
 		"block": block,
 		"page": gin.H{
-			"id":        page.ID,
-			"title":     page.Title,
-			"cover":     page.Cover,
-			"dark_mode": page.DarkMode,
-			"cinematic": page.Cinematic,
-			"mood":      page.Mood,
-			"bg_color":  page.BgColor,
+			"id":                 page.ID,
+			"title":              page.Title,
+			"cover":              page.Cover,
+			"dark_mode":          page.DarkMode,
+			"cinematic":          page.Cinematic,
+			"mood":               page.Mood,
+			"bg_color":           page.BgColor,
+			"owner_username":     page.AuthorUsername,
+			"owner_display_name": page.AuthorDisplayName,
+			"owner_avatar_url":   page.AuthorAvatarURL,
 		},
 	})
 }
@@ -385,11 +389,11 @@ func (handler *Handler) publishPresence(ctx *gin.Context) {
 	event := streamEvent{
 		Type: "page.presence",
 		Presence: &pagePresence{
-			PageID:    pageID,
-			SessionID: body.SessionID,
-			UserName:  body.UserName,
+			PageID:        pageID,
+			SessionID:     body.SessionID,
+			UserName:      body.UserName,
 			UserAvatarURL: body.UserAvatarURL,
-			IsOnline:  body.IsOnline,
+			IsOnline:      body.IsOnline,
 		},
 		Timestamp: time.Now().UTC(),
 	}
@@ -444,12 +448,12 @@ func (handler *Handler) publishTyping(ctx *gin.Context) {
 	event := streamEvent{
 		Type: "page.typing",
 		Typing: &typingPresence{
-			PageID:    pageID,
-			BlockID:   body.BlockID,
-			SessionID: body.SessionID,
-			UserName:  body.UserName,
+			PageID:        pageID,
+			BlockID:       body.BlockID,
+			SessionID:     body.SessionID,
+			UserName:      body.UserName,
 			UserAvatarURL: body.UserAvatarURL,
-			IsTyping:  body.IsTyping,
+			IsTyping:      body.IsTyping,
 		},
 		Timestamp: time.Now().UTC(),
 	}

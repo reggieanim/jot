@@ -15,7 +15,7 @@
 	}`;
 
 	/** Pages where we do NOT show the global nav (they have their own) */
-	$: hideNav = $page.url.pathname === '/' || $page.url.pathname.startsWith('/editor') || $page.url.pathname.startsWith('/public') || $page.url.pathname.startsWith('/proofread') || $page.url.pathname.startsWith('/user') || $page.url.pathname.startsWith('/settings') || $page.url.pathname.startsWith('/feed');
+	$: hideNav = $page.url.pathname === '/' || $page.url.pathname.startsWith('/editor') || $page.url.pathname.startsWith('/public') || $page.url.pathname.startsWith('/proofread') || $page.url.pathname.startsWith('/user') || $page.url.pathname.startsWith('/settings') || $page.url.pathname.startsWith('/feed') || $page.url.pathname.startsWith('/embed');
 
 	onMount(() => {
 		fetchMe();

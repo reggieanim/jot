@@ -439,7 +439,7 @@
 					{#each published as page, idx (page.id)}
 						{@const img = imageFor(page)}
 						{@const emb = embedFor(page)}
-						<a class="card" href={`/public/${page.id}`} class:tall={idx % 5 === 0} class:wide={idx % 7 === 2} class:dark={page.dark_mode} class:cinematic={page.cinematic} class:has-user-bg={!!page.bg_color} class:collab={page.has_share_links} style={cinematicStyle(page)}>
+						<a class="card" href={`/public/${page.id}`} class:tall={idx % 5 === 0} class:wide={idx % 7 === 2} class:dark={page.dark_mode} class:cinematic={page.cinematic} class:has-user-bg={!!page.bg_color} class:collab={page.has_share_links} class:unlisted={!!page.unlisted} style={cinematicStyle(page)}>
 							<div class="card-visual" style={!img && !emb ? `background:${patternFor(page)}` : ''}>
 								{#if img}
 									<img src={img} alt={page.title || 'Page image'} />
@@ -453,7 +453,12 @@
 								{/if}
 							</div>
 							<div class="card-body">
-								<span class="card-tag">{page.title ? page.title.split(' ').slice(0, 3).join(' ').toUpperCase() : 'UNTITLED'}</span>
+								<div class="card-topline">
+									<span class="card-tag">{page.title ? page.title.split(' ').slice(0, 3).join(' ').toUpperCase() : 'UNTITLED'}</span>
+									{#if page.unlisted}
+										<span class="card-visibility-pill">UNLISTED</span>
+									{/if}
+								</div>
 								<h3 class="card-title">{page.title || 'Untitled'}</h3>
 								<div class="card-meta">
 									<div class="card-author">
@@ -1185,6 +1190,13 @@
 		gap: 5px;
 	}
 
+	.card-topline {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
 	/* Feed-style tag: no fill, just a bottom border underline */
 	.card-tag {
 		display: inline-block;
@@ -1196,6 +1208,26 @@
 		align-self: flex-start;
 		border-bottom: 2px solid #1a1a1a;
 		padding-bottom: 2px;
+	}
+
+	.card-visibility-pill {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 8px;
+		font-weight: 900;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		padding: 2px 6px;
+		border-radius: 999px;
+		border: 1.5px dashed #1a1a1a;
+		color: #1a1a1a;
+		background: #f5f5f3;
+		flex-shrink: 0;
+	}
+
+	.card.unlisted {
+		border-style: dashed;
 	}
 
 	/* Draft tag gets a muted underline */
@@ -1335,6 +1367,12 @@
 	.card.dark .card-tag {
 		color: #ccc;
 		border-bottom-color: #555;
+	}
+
+	.card.dark .card-visibility-pill {
+		border-color: #777;
+		color: #d4d4d4;
+		background: #1b1b1b;
 	}
 
 	.card.dark .draft-tag {
@@ -1780,7 +1818,7 @@
 		.cover-title { font-size: 2rem !important; }
 		.cover-foot { padding: 16px 16px; }
 		.dash-main { padding: 20px 12px 48px; }
-		.masonry { columns: 2; }
+		.masonry { columns: 1; }
 		.card-actions { opacity: 1; }
 		.modal-card { padding: 22px 20px; }
 	}

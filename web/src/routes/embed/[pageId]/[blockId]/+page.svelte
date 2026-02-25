@@ -10,7 +10,7 @@
 	let { data }: {
 		data: {
 			block: ApiBlock;
-			page: { id: string; title: string; cover?: string; dark_mode?: boolean; cinematic?: boolean; mood?: number; bg_color?: string };
+			page: { id: string; title: string; cover?: string; dark_mode?: boolean; cinematic?: boolean; mood?: number; bg_color?: string; owner_username?: string; owner_display_name?: string; owner_avatar_url?: string };
 		};
 	} = $props();
 
@@ -27,6 +27,10 @@
 	let cinematicEnabled = $derived(data.page?.cinematic !== false);
 	let moodStrength = $derived(Number(data.page?.mood ?? 65));
 	let bgColor = $derived(data.page?.bg_color || '');
+	let authorUsername = $derived(data.page?.owner_username || '');
+	let authorDisplayName = $derived(data.page?.owner_display_name || '');
+	let authorAvatarUrl = $derived(data.page?.owner_avatar_url || '');
+	let authorInitial = $derived((authorDisplayName || authorUsername || '?').charAt(0).toUpperCase());
 
 	let blockText = $derived(block ? plainTextFromBlockData(block.data) : '');
 	let blockHtml = $derived(block ? htmlFromBlockData(block.data) : '');
@@ -81,25 +85,14 @@
 	{#if block}
 		<main class="embed-main" class:has-bg-color={!!bgColor}>
 			<div class="embed-card">
-				<div class="embed-header">
-					<a href={publicPageUrl} class="page-link" title="View full page">
-						<svg viewBox="0 0 24 24" class="page-icon" aria-hidden="true">
-							<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-							<polyline points="14 2 14 8 20 8" />
-						</svg>
-						<span class="page-title">{pageTitle}</span>
-					</a>
-					<button class="copy-btn" on:click={copyEmbedLink} title="Copy embed link">
-						{#if copied}
-							<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-						{:else}
-							<svg viewBox="0 0 24 24" aria-hidden="true">
-								<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-								<path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-							</svg>
-						{/if}
-					</button>
-				</div>
+				<a href="/user/{authorUsername}" class="card-author">
+					{#if authorAvatarUrl}
+						<img class="card-author-avatar" src={authorAvatarUrl} alt={authorDisplayName || authorUsername} />
+					{:else}
+						<span class="card-author-letter">{authorInitial}</span>
+					{/if}
+					<span class="card-author-name">{authorDisplayName || authorUsername || 'Anonymous'}</span>
+				</a>
 
 				<div class="block-body">
 					{#if block.type === 'heading'}
@@ -155,6 +148,16 @@
 
 				<div class="embed-footer">
 					<a href={publicPageUrl} class="view-full">View full page →</a>
+					<button class="copy-btn" onclick={copyEmbedLink} title="Copy embed link">
+						{#if copied}
+							<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+						{:else}
+							<svg viewBox="0 0 24 24" aria-hidden="true">
+								<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+								<path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+							</svg>
+						{/if}
+					</button>
 				</div>
 			</div>
 		</main>
@@ -181,12 +184,11 @@
 		transition: background 0.2s;
 	}
 
+	/* ── Right content ── */
 	.embed-main {
 		width: 100%;
 		max-width: 640px;
 		background: var(--note-bg, #ffffff);
-		border-radius: 8px;
-		overflow: hidden;
 	}
 
 	.embed-main.has-bg-color {
@@ -195,67 +197,69 @@
 	}
 
 	.embed-card {
+		width: 100%;
+		max-width: 600px;
 		border: 2px solid var(--note-title, #1a1a1a);
 		border-radius: 8px;
 		background: var(--note-surface, #ffffff);
 		padding: 24px 28px;
-		box-shadow: 6px 6px 0 var(--note-title, #1a1a1a);
-		transition: transform 0.12s ease, box-shadow 0.12s ease;
+		transition: transform 0.14s ease, box-shadow 0.14s ease;
 	}
 
 	.embed-card:hover {
-		transform: translateY(-3px);
-		box-shadow: 8px 8px 0 var(--note-title, #1a1a1a);
+		transform: translateY(-4px);
+		box-shadow: 6px 6px 0 var(--note-title, #1a1a1a);
 	}
 
-	.embed-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
-		margin-bottom: 18px;
-	}
-
-	.page-link {
+	.card-author {
 		display: flex;
 		align-items: center;
 		gap: 8px;
 		text-decoration: none;
-		color: var(--note-title, #1a1a1a);
-		transition: transform 0.12s;
+		margin-bottom: 16px;
 		min-width: 0;
 	}
 
-	.page-link:hover {
-		color: var(--note-title, #1a1a1a);
-		transform: translateX(2px);
-	}
-
-	.page-icon {
-		width: 16px;
-		height: 16px;
+	.card-author-avatar {
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		object-fit: cover;
+		border: 2px solid var(--note-title, #1a1a1a);
 		flex-shrink: 0;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 1.8;
-		stroke-linecap: round;
-		stroke-linejoin: round;
 	}
 
-	.page-title {
-		font-size: 13px;
+	.card-author-letter {
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--note-title, #1a1a1a);
+		color: var(--note-bg, #ffffff);
+		font-size: 12px;
 		font-weight: 800;
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
+		flex-shrink: 0;
+	}
+
+	.card-author-name {
+		font-size: 12px;
+		font-weight: 700;
+		color: var(--note-title, #1a1a1a);
+		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		white-space: nowrap;
+		letter-spacing: 0.01em;
+	}
+
+	.card-author:hover .card-author-name {
+		text-decoration: underline;
 	}
 
 	.copy-btn {
-		flex-shrink: 0;
-		width: 32px;
-		height: 32px;
+		width: 28px;
+		height: 28px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -265,6 +269,7 @@
 		cursor: pointer;
 		color: var(--note-muted, #888);
 		transition: color 0.12s;
+		padding: 0;
 	}
 
 	.copy-btn:hover {
@@ -272,8 +277,8 @@
 	}
 
 	.copy-btn svg {
-		width: 14px;
-		height: 14px;
+		width: 13px;
+		height: 13px;
 		fill: none;
 		stroke: currentColor;
 		stroke-width: 2;
@@ -412,7 +417,8 @@
 	.embed-footer {
 		margin-top: 20px;
 		display: flex;
-		justify-content: flex-end;
+		align-items: center;
+		justify-content: space-between;
 	}
 
 	.view-full {

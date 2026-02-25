@@ -802,6 +802,56 @@
 	}
 
 	/* ━━ CARD VISUAL ━━ */
+	.card-edit-btn {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		z-index: 10;
+		width: 28px;
+		height: 28px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: #fff;
+		border: 1.5px solid #1a1a1a;
+		border-radius: 6px;
+		cursor: pointer;
+		color: #1a1a1a;
+		opacity: 0;
+		transition: opacity 0.15s, background 0.12s;
+		padding: 0;
+	}
+
+	.card-edit-btn svg {
+		width: 13px;
+		height: 13px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+
+	.card:hover .card-edit-btn {
+		opacity: 1;
+	}
+
+	.card-edit-btn:hover {
+		background: #f5f5f3;
+	}
+
+	.card.dark .card-edit-btn {
+		background: rgba(30,30,30,0.85);
+		border-color: #555;
+		color: #ccc;
+	}
+
+	.card.dark .card-edit-btn:hover {
+		background: rgba(255,255,255,0.1);
+		border-color: #fff;
+		color: #fff;
+	}
+
 	.card-visual {
 		width: 100%;
 		min-height: 140px;

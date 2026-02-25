@@ -29,6 +29,7 @@ type Page struct {
 	Title          string     `json:"title"`
 	Cover          *string    `json:"cover,omitempty"`
 	Published      bool       `json:"published"`
+	Unlisted       bool       `json:"unlisted"`
 	PublishedAt    *time.Time `json:"published_at,omitempty"`
 	DarkMode       bool       `json:"dark_mode"`
 	Cinematic      bool       `json:"cinematic"`

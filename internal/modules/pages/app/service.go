@@ -151,14 +151,25 @@ func (service *Service) GetPage(ctx context.Context, pageID domain.PageID) (doma
 	return page, nil
 }
 
-func (service *Service) SetPagePublished(ctx context.Context, ownerID string, pageID domain.PageID, published bool) (domain.Page, error) {
+func (service *Service) SetPagePublished(ctx context.Context, ownerID string, pageID domain.PageID, published bool, unlisted *bool) (domain.Page, error) {
 	if pageID == "" {
 		return domain.Page{}, errs.ErrInvalidInput
 	}
 	if err := service.checkOwnership(ctx, pageID, ownerID); err != nil {
 		return domain.Page{}, err
 	}
-	if err := service.repo.SetPublished(ctx, pageID, published); err != nil {
+	current, err := service.repo.GetByID(ctx, pageID)
+	if err != nil {
+		return domain.Page{}, fmt.Errorf("get page before publish update: %w", err)
+	}
+	nextUnlisted := current.Unlisted
+	if unlisted != nil {
+		nextUnlisted = *unlisted
+	}
+	if !published {
+		nextUnlisted = false
+	}
+	if err := service.repo.SetPublished(ctx, pageID, published, nextUnlisted); err != nil {
 		return domain.Page{}, fmt.Errorf("set page published: %w", err)
 	}
 	page, err := service.repo.GetByID(ctx, pageID)
@@ -381,6 +392,25 @@ func (service *Service) GetPublicBlock(ctx context.Context, pageID domain.PageID
 		}
 	}
 	return domain.Block{}, domain.Page{}, errs.ErrNotFound
+}
+
+func (service *Service) GetPublicBlockWithAuthor(ctx context.Context, pageID domain.PageID, blockID string) (domain.Block, domain.FeedPage, error) {
+	if blockID == "" {
+		return domain.Block{}, domain.FeedPage{}, errs.ErrInvalidInput
+	}
+	page, err := service.repo.GetByIDWithAuthor(ctx, pageID)
+	if err != nil {
+		return domain.Block{}, domain.FeedPage{}, err
+	}
+	if !page.Published {
+		return domain.Block{}, domain.FeedPage{}, errs.ErrNotFound
+	}
+	for _, block := range page.Blocks {
+		if block.ID == blockID {
+			return block, page, nil
+		}
+	}
+	return domain.Block{}, domain.FeedPage{}, errs.ErrNotFound
 }
 
 func (service *Service) CreateProofread(ctx context.Context, pageID domain.PageID, authorName, title, summary, stance string, annotations []domain.ProofreadAnnotation) (domain.Proofread, error) {

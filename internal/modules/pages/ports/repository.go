@@ -12,8 +12,9 @@ type PageRepository interface {
 	UpdateBlocks(ctx context.Context, pageID domain.PageID, blocks []domain.Block) error
 	UpdateBlocksOptimistic(ctx context.Context, pageID domain.PageID, blocks []domain.Block, expectedUpdatedAt *time.Time) error
 	UpdatePageMetaOptimistic(ctx context.Context, pageID domain.PageID, title string, cover *string, darkMode bool, cinematic bool, mood int, bgColor string, expectedUpdatedAt *time.Time) error
-	SetPublished(ctx context.Context, pageID domain.PageID, published bool) error
+	SetPublished(ctx context.Context, pageID domain.PageID, published bool, unlisted bool) error
 	GetByID(ctx context.Context, pageID domain.PageID) (domain.Page, error)
+	GetByIDWithAuthor(ctx context.Context, pageID domain.PageID) (domain.FeedPage, error)
 	ListPages(ctx context.Context, ownerID string) ([]domain.Page, error)
 	ListPublishedPagesByOwner(ctx context.Context, ownerID string) ([]domain.Page, error)
 	ListPublishedFeed(ctx context.Context, limit, offset int, sort string) ([]domain.FeedPage, error)

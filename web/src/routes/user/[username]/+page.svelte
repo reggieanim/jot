@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { env } from '$env/dynamic/public';
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import type { ApiPage } from '$lib/editor/types';
 	import { user as authUser } from '$lib/stores/auth';
 
@@ -306,6 +307,11 @@
 						{@const img = imageFor(p)}
 						{@const emb = embedFor(p)}
 						<a class="card" href={`/public/${p.id}`} class:tall={idx % 3 === 0} class:dark={p.dark_mode} class:cinematic={p.cinematic} class:has-user-bg={!!p.bg_color} style={cinematicStyle(p)}>
+							{#if isOwnProfile}
+								<button class="card-edit-btn" type="button" title="Edit page" on:click|preventDefault|stopPropagation={() => goto(`/editor/${p.id}`)}>
+									<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+								</button>
+							{/if}
 							<div class="card-visual" style={!img && !emb ? `background:${patternFor(p)}` : ''}>
 								{#if img}
 									<img src={img} alt={p.title || 'Page image'} />
@@ -791,6 +797,56 @@
 	.card:hover {
 		transform: translateY(-4px);
 		box-shadow: 6px 6px 0 #1a1a1a;
+	}
+
+	.card-edit-btn {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		z-index: 10;
+		width: 28px;
+		height: 28px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: #fff;
+		border: 1.5px solid #1a1a1a;
+		border-radius: 6px;
+		cursor: pointer;
+		color: #1a1a1a;
+		opacity: 0;
+		transition: opacity 0.15s, background 0.12s;
+		padding: 0;
+	}
+
+	.card-edit-btn svg {
+		width: 13px;
+		height: 13px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+
+	.card:hover .card-edit-btn {
+		opacity: 1;
+	}
+
+	.card-edit-btn:hover {
+		background: #f5f5f3;
+	}
+
+	.card.dark .card-edit-btn {
+		background: rgba(30,30,30,0.85);
+		border-color: #555;
+		color: #ccc;
+	}
+
+	.card.dark .card-edit-btn:hover {
+		background: rgba(255,255,255,0.1);
+		border-color: #fff;
+		color: #fff;
 	}
 
 	/* ---- CARD VISUAL ---- */
