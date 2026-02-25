@@ -1421,7 +1421,7 @@
 		}
 
 		.masonry {
-			columns: 2;
+			columns: 1;
 		}
 
 		.card-meta {
