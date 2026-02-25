@@ -7,6 +7,7 @@
 	import Cover from '$lib/components/Cover.svelte';
 	import { user as authUser } from '$lib/stores/auth';
 	import { getBlockAsGalleryItems, normalizeGalleryItems, toGalleryData } from '$lib/editor/blocks';
+	import { parseImportedDocument } from '$lib/editor/importers';
 	import { buildThemeStyle, DEFAULT_THEME, extractPaletteFromImage } from '$lib/editor/theme';
 	import { copyTextToClipboard } from '$lib/utils/clipboard';
 	import type { ApiBlock, ApiPage, Rgb } from '$lib/editor/types';
@@ -21,6 +22,15 @@
 	let revokeButtonState: Record<'view' | 'edit', 'idle' | 'loading' | 'done' | 'error'> = { view: 'idle', edit: 'idle' };
 	let title = 'Untitled';
 	let titleEl: HTMLDivElement;
+	let importInputEl: HTMLInputElement;
+	type PendingImport = {
+		fileName: string;
+		title?: string;
+		blocks: ApiBlock[];
+		replaceExisting: boolean;
+	};
+	let pendingImport: PendingImport | null = null;
+	let showImportPreview = false;
 	let cover: string | null = null;
 	let isPublished = false;
 	let isUnlisted = false;
@@ -646,6 +656,89 @@
 		}
 	}
 
+	function openImportDialog() {
+		if (!canEdit) return;
+		importInputEl?.click();
+	}
+
+	function hasMeaningfulContent(currentBlocks: ApiBlock[]): boolean {
+		if (currentBlocks.length === 0) return false;
+		if (currentBlocks.length === 1 && currentBlocks[0].type === 'paragraph') {
+			const onlyText = String(currentBlocks[0]?.data?.text || '').trim();
+			return onlyText.length > 0;
+		}
+		return true;
+	}
+
+	function closeImportPreview() {
+		showImportPreview = false;
+		pendingImport = null;
+	}
+
+	function onImportOverlayKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			closeImportPreview();
+		}
+	}
+
+
+	function applyPendingImport() {
+		if (!pendingImport) return;
+
+		blocks = pendingImport.blocks.map((block, index) => ({ ...block, position: index }));
+		syncTocNow();
+		markBlocksDirtyAndScheduleSync();
+
+		if (pendingImport.title && (title.trim() === '' || title.trim().toLowerCase() === 'untitled')) {
+			title = pendingImport.title;
+			if (titleEl) titleEl.textContent = title;
+			markMetaDirtyAndScheduleSync();
+		}
+
+		status = `Imported ${pendingImport.fileName}`;
+		setTimeout(() => {
+			if (status.startsWith('Imported ')) status = '';
+		}, 1800);
+
+		closeImportPreview();
+	}
+
+	async function handleImportFileChange(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		try {
+			const lowerName = file.name.toLowerCase();
+			const allowed = ['.md', '.markdown', '.txt', '.docx'];
+			if (!allowed.some((ext) => lowerName.endsWith(ext))) {
+				status = 'Only .md, .markdown, .txt, and .docx are supported in Phase 1.';
+				return;
+			}
+
+			const content = lowerName.endsWith('.docx') ? await file.arrayBuffer() : await file.text();
+			const { title: importedTitle, blocks: importedBlocks } = await parseImportedDocument(content, file.name);
+
+			if (!importedBlocks.length) {
+				status = 'No content found in file.';
+				return;
+			}
+
+			pendingImport = {
+				fileName: file.name,
+				title: importedTitle,
+				blocks: importedBlocks,
+				replaceExisting: hasMeaningfulContent(blocks)
+			};
+			showImportPreview = true;
+		} catch {
+			status = 'Import failed.';
+		} finally {
+			input.value = '';
+		}
+	}
+
 	async function copyShareLink(access: 'view' | 'edit') {
 		if (!canManage || !pageId) return;
 		shareButtonState = { ...shareButtonState, [access]: 'loading' };
@@ -1182,6 +1275,11 @@
 							{isPublished ? 'Published' : 'Publish page'}
 						</button>
 					{/if}
+					{#if canEdit}
+						<button type="button" class="import-btn" on:click={openImportDialog} title="Import Markdown or text">
+							Import file
+						</button>
+					{/if}
 					{#if canManage}
 						<label class="unlisted-toggle" title="Unlisted pages are published but hidden from feed and profile.">
 							<input type="checkbox" checked={isUnlisted} on:change={toggleUnlisted} />
@@ -1192,6 +1290,14 @@
 						<a class="public-link" href={`/public/${pageId}`} target="_blank" rel="noreferrer">Open public</a>
 					{/if}
 				</div>
+
+				<input
+					bind:this={importInputEl}
+					type="file"
+					accept=".md,.markdown,.txt,.docx,text/markdown,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+					on:change={handleImportFileChange}
+					class="hidden-file-input"
+				/>
 
 				{#if canManage && pageId}
 					<div class="share-card">
@@ -1360,6 +1466,41 @@
 						{/each}
 					</div>
 				{/if}
+			</div>
+		{/if}
+
+		{#if showImportPreview && pendingImport}
+			<div
+				class="import-preview-overlay"
+				on:click|self={closeImportPreview}
+				on:keydown={onImportOverlayKeydown}
+				role="dialog"
+				aria-modal="true"
+				aria-label="Import preview"
+				tabindex="0"
+			>
+				<div class="import-preview-card" role="document">
+					<h3 class="import-preview-title">Import preview</h3>
+					<p class="import-preview-text"><strong>{pendingImport.fileName}</strong> will create <strong>{pendingImport.blocks.length}</strong> block{pendingImport.blocks.length === 1 ? '' : 's'}.</p>
+					{#if pendingImport.title}
+						<p class="import-preview-sub">Suggested title: “{pendingImport.title}”</p>
+					{/if}
+					{#if pendingImport.replaceExisting}
+						<p class="import-preview-warning">This will replace your current blocks.</p>
+					{/if}
+					<div class="import-preview-types">
+						{#each pendingImport.blocks.slice(0, 8) as b, i (b.id || i)}
+							<span class="import-type-pill">{b.type}</span>
+						{/each}
+						{#if pendingImport.blocks.length > 8}
+							<span class="import-type-pill">+{pendingImport.blocks.length - 8} more</span>
+						{/if}
+					</div>
+					<div class="import-preview-actions">
+						<button type="button" class="import-cancel-btn" on:click={closeImportPreview}>Cancel</button>
+						<button type="button" class="import-apply-btn" on:click={applyPendingImport}>Import now</button>
+					</div>
+				</div>
 			</div>
 		{/if}
 
@@ -1679,6 +1820,127 @@
 		border-radius: 6px;
 		cursor: pointer;
 		transition: transform 0.12s, box-shadow 0.12s;
+	}
+
+	.import-btn {
+		display: inline-flex;
+		align-items: center;
+		border: 1.5px dashed var(--note-title, #1a1a1a);
+		background: transparent;
+		color: var(--note-title, #1a1a1a);
+		font-size: 12px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		padding: 7px 12px;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: transform 0.12s, background 0.12s;
+	}
+
+	.import-btn:hover {
+		transform: translateY(-1px);
+		background: color-mix(in srgb, var(--note-surface, #fff) 88%, var(--note-title, #1a1a1a) 6%);
+	}
+
+	.hidden-file-input {
+		display: none;
+	}
+
+	.import-preview-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 30;
+		background: rgba(0, 0, 0, 0.35);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 16px;
+	}
+
+	.import-preview-card {
+		width: min(520px, calc(100vw - 24px));
+		background: var(--note-surface, #fff);
+		border: 2px solid var(--note-title, #1a1a1a);
+		border-radius: 10px;
+		padding: 18px;
+		box-shadow: 6px 6px 0 var(--note-title, #1a1a1a);
+		display: grid;
+		gap: 10px;
+	}
+
+	.import-preview-title {
+		margin: 0;
+		font-size: 16px;
+		font-weight: 800;
+		letter-spacing: -0.01em;
+		color: var(--note-title, #1a1a1a);
+	}
+
+	.import-preview-text,
+	.import-preview-sub,
+	.import-preview-warning {
+		margin: 0;
+		font-size: 12px;
+		line-height: 1.5;
+		color: var(--note-text, #1f2328);
+	}
+
+	.import-preview-sub {
+		color: var(--note-muted, #6b7280);
+	}
+
+	.import-preview-warning {
+		font-weight: 700;
+		color: #92400e;
+	}
+
+	.import-preview-types {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+
+	.import-type-pill {
+		display: inline-flex;
+		align-items: center;
+		padding: 3px 7px;
+		border-radius: 999px;
+		font-size: 10px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		background: color-mix(in srgb, var(--note-surface, #fff) 92%, var(--note-title, #1a1a1a) 8%);
+		border: 1px solid var(--note-border, #d1d5db);
+		color: var(--note-title, #1a1a1a);
+	}
+
+	.import-preview-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 4px;
+	}
+
+	.import-cancel-btn,
+	.import-apply-btn {
+		border-radius: 6px;
+		padding: 7px 12px;
+		font-size: 12px;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.import-cancel-btn {
+		border: 1.5px solid var(--note-border, #d1d5db);
+		background: var(--note-surface, #fff);
+		color: var(--note-muted, #6b7280);
+	}
+
+	.import-apply-btn {
+		border: 2px solid var(--note-title, #1a1a1a);
+		background: var(--note-title, #1a1a1a);
+		color: var(--note-surface, #fff);
 	}
 
 	.publish-btn:hover {

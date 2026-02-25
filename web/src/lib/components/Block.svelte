@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
+	import hljs from 'highlight.js/lib/common';
 	import { htmlFromBlockData, plainTextFromBlockData, sanitizeRichText } from '$lib/editor/richtext';
 	import { copyTextToClipboard } from '$lib/utils/clipboard';
 
@@ -24,6 +25,7 @@
 	let galleryInputEl: HTMLInputElement;
 	let showSlashMenu = false;
 	let slashMenuPosition = { x: 0, y: 0 };
+	let slashMenuPlacement: 'above' | 'below' = 'below';
 	let selectedMenuIndex = 0;
 	let localText = plainTextFromBlockData(data);
 	let localHtml = htmlFromBlockData(data);
@@ -122,7 +124,7 @@
 			const sel = window.getSelection();
 			if (sel && sel.rangeCount > 0) {
 				const rect = sel.getRangeAt(0).getBoundingClientRect();
-				slashMenuPosition = { x: rect.left, y: rect.bottom + 8 };
+				setSlashMenuPosition(rect);
 				showSlashMenu = true;
 				selectedMenuIndex = 0;
 			}
@@ -665,7 +667,45 @@
 	/* ---- Code block ---- */
 	let codeText = data?.code || '';
 	let codeLang = data?.language || 'javascript';
+	let highlightedCodeHtml = '';
+	let codeTextareaEl: HTMLTextAreaElement;
+	let codeHighlightEl: HTMLPreElement;
 	const CODE_LANGUAGES = ['javascript', 'typescript', 'html', 'css', 'python', 'go', 'rust', 'json', 'sql', 'bash', 'markdown'];
+
+	function normalizeHighlightLanguage(lang: string): string {
+		const lower = String(lang || '').toLowerCase();
+		return lower === 'bash' ? 'bash' : lower;
+	}
+
+	function escapeHtml(value: string): string {
+		return value
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&#39;');
+	}
+
+	function getHighlightedCodeHtml(code: string, lang: string): string {
+		const safeCode = String(code || '');
+		if (!safeCode.trim()) return ' ';
+
+		try {
+			const preferred = normalizeHighlightLanguage(lang);
+			if (preferred && hljs.getLanguage(preferred)) {
+				return hljs.highlight(safeCode, { language: preferred, ignoreIllegals: true }).value;
+			}
+			return hljs.highlightAuto(safeCode).value;
+		} catch {
+			return escapeHtml(safeCode);
+		}
+	}
+
+	function syncCodeScroll() {
+		if (!codeTextareaEl || !codeHighlightEl) return;
+		codeHighlightEl.scrollTop = codeTextareaEl.scrollTop;
+		codeHighlightEl.scrollLeft = codeTextareaEl.scrollLeft;
+	}
 
 	function handleCodeInput(e: Event) {
 		if (isLocked) return;
@@ -784,6 +824,7 @@
 		codeText = data?.code ?? codeText;
 		codeLang = data?.language ?? codeLang;
 	}
+	$: highlightedCodeHtml = type === 'code' ? getHighlightedCodeHtml(codeText, codeLang) : '';
 	$: if (type === 'canvas') {
 		canvasCode = data?.code ?? canvasCode;
 		canvasWidth = Number(data?.width) || canvasWidth;
@@ -825,9 +866,30 @@
 		if (isLocked) return;
 		const btn = e.currentTarget as HTMLElement;
 		const rect = btn.getBoundingClientRect();
-		slashMenuPosition = { x: rect.left, y: rect.bottom + 6 };
+		setSlashMenuPosition(rect);
 		showSlashMenu = !showSlashMenu;
 		selectedMenuIndex = 0;
+	}
+
+	function setSlashMenuPosition(anchorRect: DOMRect) {
+		const margin = 12;
+		const gap = 8;
+		const estimatedMenuHeight = 320;
+		const estimatedMenuWidth = Math.min(320, window.innerWidth - margin * 2);
+
+		const canOpenBelow = anchorRect.bottom + gap + estimatedMenuHeight <= window.innerHeight - margin;
+		const canOpenAbove = anchorRect.top - gap - estimatedMenuHeight >= margin;
+		slashMenuPlacement = !canOpenBelow && canOpenAbove ? 'above' : 'below';
+
+		const rawX = anchorRect.left;
+		const maxX = Math.max(margin, window.innerWidth - estimatedMenuWidth - margin);
+		const clampedX = Math.min(Math.max(rawX, margin), maxX);
+
+		const y = slashMenuPlacement === 'above'
+			? Math.max(margin, anchorRect.top - gap)
+			: Math.min(window.innerHeight - margin, anchorRect.bottom + gap);
+
+		slashMenuPosition = { x: clampedX, y };
 	}
 </script>
 
@@ -1068,18 +1130,23 @@
 					</select>
 					<span class="code-label">Code</span>
 				</div>
-				<textarea
-					class="code-editor"
-					spellcheck="false"
-					autocomplete="off"
-					autocorrect="off"
-					autocapitalize="off"
-					wrap="off"
-					value={codeText}
-					placeholder="Write your code here..."
-					on:input={handleCodeInput}
-					on:keydown={handleCodeKeydown}
-				></textarea>
+				<div class="code-editor-shell">
+					<pre bind:this={codeHighlightEl} class="code-highlight-layer" aria-hidden="true"><code class={`hljs language-${codeLang}`}>{@html highlightedCodeHtml}</code></pre>
+					<textarea
+						bind:this={codeTextareaEl}
+						class="code-editor code-editor-overlay"
+						spellcheck="false"
+						autocomplete="off"
+						autocorrect="off"
+						autocapitalize="off"
+						wrap="off"
+						value={codeText}
+						placeholder="Write your code here..."
+						on:input={handleCodeInput}
+						on:keydown={handleCodeKeydown}
+						on:scroll={syncCodeScroll}
+					></textarea>
+				</div>
 			</div>
 		{:else if type === 'canvas'}
 			<div class="canvas-block">
@@ -1165,7 +1232,7 @@
 </div>
 
 {#if showSlashMenu}
-	<div class="slash-menu" style="left: {slashMenuPosition.x}px; top: {slashMenuPosition.y}px;">
+	<div class="slash-menu" class:above={slashMenuPlacement === 'above'} style="left: {slashMenuPosition.x}px; top: {slashMenuPosition.y}px;">
 		<div class="slash-menu-header">Basic blocks</div>
 		{#each slashCommands as cmd, i (cmd.id)}
 			<button
@@ -1708,79 +1775,98 @@
 	.slash-menu {
 		position: fixed;
 		z-index: 1000;
-		background: var(--note-surface, #ffffff);
-		border: 1px solid var(--note-border, #d1d5db);
-		border-radius: 14px;
-		box-shadow: 0 18px 46px rgba(15, 23, 42, 0.16);
-		min-width: 280px;
-		max-height: 360px;
+		background: #fff;
+		border: 2px solid #1a1a1a;
+		border-radius: 8px;
+		box-shadow: 6px 6px 0 #1a1a1a;
+		min-width: 252px;
+		max-width: min(280px, calc(100vw - 24px));
+		max-height: 300px;
 		overflow-y: auto;
-		padding: 8px 0;
+		padding: 4px;
+		font-family: inherit;
+	}
+
+	.slash-menu.above {
+		transform: translateY(calc(-100% - 2px));
 	}
 
 	.slash-menu-header {
-		padding: 8px 14px;
-		font-size: 11px;
-		font-weight: 600;
-		color: var(--note-muted, #9ca3af);
+		padding: 6px 8px;
+		font-size: 10px;
+		font-weight: 800;
+		color: #666;
 		text-transform: uppercase;
-		letter-spacing: 0.5px;
+		letter-spacing: 0.08em;
 	}
 
 	.slash-item {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: 9px;
 		width: 100%;
-		padding: 8px 14px;
-		background: transparent;
-		border: none;
+		padding: 7px 8px;
+		background: #fff;
+		border: 1.5px solid transparent;
+		border-radius: 6px;
 		cursor: pointer;
 		text-align: left;
-		transition: background 0.1s;
+		transition: background 0.12s, border-color 0.12s, transform 0.12s;
 	}
 
 	.slash-item:hover,
 	.slash-item.selected {
-		background: color-mix(in srgb, var(--note-accent, #7c5cff) 10%, transparent);
+		background: #f5f5f3;
+		border-color: #1a1a1a;
+		transform: translateY(-1px);
 	}
 
 	.slash-icon {
-		width: 40px;
-		height: 40px;
+		width: 28px;
+		height: 28px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: var(--note-surface, #ffffff);
-		border: 1px solid var(--note-border, #e5e7eb);
-		border-radius: 4px;
-		font-size: 18px;
+		background: #fff;
+		border: 1.5px solid #1a1a1a;
+		border-radius: 6px;
+		font-size: 13px;
+		font-weight: 700;
+		color: #1a1a1a;
 		flex-shrink: 0;
 	}
 
 	.slash-info {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: 1px;
 	}
 
 	.slash-label {
-		font-size: 14px;
-		font-weight: 500;
-		color: var(--note-title, #1f2328);
+		display: inline-block;
+		font-size: 9px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+		color: #1a1a1a;
+		border-bottom: 2px solid #1a1a1a;
+		padding-bottom: 1px;
+		line-height: 1.1;
 	}
 
 	.slash-desc {
-		font-size: 12px;
-		color: var(--note-muted, #6b7280);
+		font-size: 10px;
+		color: #666;
+		line-height: 1.2;
+		margin-top: 1px;
 	}
 
 	/* ---- Code block ---- */
 	.code-block {
-		border: 1px solid var(--note-border, #d1d5db);
-		border-radius: 10px;
+		border: 1px solid #e7e5e4;
+		border-radius: 8px;
 		overflow: hidden;
-		background: #1e1e2e;
+		background: #f7f7f5;
 	}
 
 	.code-toolbar {
@@ -1788,14 +1874,14 @@
 		align-items: center;
 		gap: 10px;
 		padding: 6px 12px;
-		background: #181825;
-		border-bottom: 1px solid #313244;
+		background: #f1f1ef;
+		border-bottom: 1px solid #e7e5e4;
 	}
 
 	.code-lang-select {
-		background: #313244;
-		color: #cdd6f4;
-		border: 1px solid #45475a;
+		background: #ffffff;
+		color: #37352f;
+		border: 1px solid #d6d3d1;
 		border-radius: 6px;
 		padding: 4px 8px;
 		font-size: 12px;
@@ -1809,17 +1895,47 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		color: #6c7086;
+		color: #78716c;
 	}
 
-	.code-editor {
+	.code-editor-shell {
+		position: relative;
+	}
+
+	.code-highlight-layer {
+		margin: 0;
+		padding: 14px 16px;
+		min-height: 120px;
+		max-height: 600px;
+		overflow: hidden;
+		pointer-events: none;
+		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+		font-size: 13px;
+		line-height: 1.6;
+		tab-size: 2;
+		white-space: pre;
+		box-sizing: border-box;
+	}
+
+	.code-highlight-layer :global(code.hljs) {
+		display: block;
+		background: transparent;
+		padding: 0;
+		margin: 0;
+		font-family: inherit;
+		font-size: inherit;
+		line-height: inherit;
+		white-space: pre;
+	}
+
+	.code-block .code-editor {
 		width: 100%;
 		min-height: 120px;
 		max-height: 600px;
 		resize: vertical;
 		padding: 14px 16px;
-		background: #1e1e2e;
-		color: #cdd6f4;
+		background: #f7f7f5;
+		color: #2f3437;
 		border: none;
 		outline: none;
 		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
@@ -1831,8 +1947,122 @@
 		box-sizing: border-box;
 	}
 
-	.code-editor::placeholder {
-		color: #585b70;
+	.code-editor-overlay {
+		position: absolute;
+		inset: 0;
+		background: transparent !important;
+		color: transparent !important;
+		caret-color: #2f3437;
+		z-index: 1;
+	}
+
+	.code-editor-overlay::selection {
+		background: rgba(59, 130, 246, 0.28);
+	}
+
+	.code-block .code-editor::placeholder {
+		color: #9b9a97;
+	}
+
+	.code-highlight-layer :global(.hljs-comment),
+	.code-highlight-layer :global(.hljs-quote) {
+		color: #9b9a97;
+	}
+
+	.code-highlight-layer :global(.hljs-keyword),
+	.code-highlight-layer :global(.hljs-selector-tag),
+	.code-highlight-layer :global(.hljs-literal),
+	.code-highlight-layer :global(.hljs-title),
+	.code-highlight-layer :global(.hljs-section),
+	.code-highlight-layer :global(.hljs-doctag),
+	.code-highlight-layer :global(.hljs-type) {
+		color: #9a3412;
+	}
+
+	.code-highlight-layer :global(.hljs-string),
+	.code-highlight-layer :global(.hljs-regexp),
+	.code-highlight-layer :global(.hljs-meta .hljs-string) {
+		color: #166534;
+	}
+
+	.code-highlight-layer :global(.hljs-number),
+	.code-highlight-layer :global(.hljs-symbol),
+	.code-highlight-layer :global(.hljs-bullet),
+	.code-highlight-layer :global(.hljs-variable),
+	.code-highlight-layer :global(.hljs-template-variable) {
+		color: #1d4ed8;
+	}
+
+	.code-highlight-layer :global(.hljs-function .hljs-title),
+	.code-highlight-layer :global(.hljs-title.function_) {
+		color: #7c2d12;
+	}
+
+	:global(.editor-main.dark) .code-block {
+		background: #191919;
+		border-color: #2f2f2f;
+	}
+
+	:global(.editor-main.dark) .code-toolbar {
+		background: #222222;
+		border-bottom-color: #2f2f2f;
+	}
+
+	:global(.editor-main.dark) .code-lang-select {
+		background: #2b2b2b;
+		color: #e8e8e8;
+		border-color: #3a3a3a;
+	}
+
+	:global(.editor-main.dark) .code-label {
+		color: #a3a3a3;
+	}
+
+	:global(.editor-main.dark) .code-block .code-editor {
+		background: #191919;
+		color: #e8e8e8;
+	}
+
+	:global(.editor-main.dark) .code-editor-overlay {
+		caret-color: #e8e8e8;
+	}
+
+	:global(.editor-main.dark) .code-block .code-editor::placeholder {
+		color: #8a8a8a;
+	}
+
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-comment),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-quote) {
+		color: #7f7f7f;
+	}
+
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-keyword),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-selector-tag),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-literal),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-title),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-section),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-doctag),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-type) {
+		color: #f59e0b;
+	}
+
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-string),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-regexp),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-meta .hljs-string) {
+		color: #86efac;
+	}
+
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-number),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-symbol),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-bullet),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-variable),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-template-variable) {
+		color: #93c5fd;
+	}
+
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-function .hljs-title),
+	:global(.editor-main.dark) .code-highlight-layer :global(.hljs-title.function_) {
+		color: #fda4af;
 	}
 
 	/* ---- Canvas block ---- */
