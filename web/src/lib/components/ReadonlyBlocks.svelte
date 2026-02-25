@@ -19,6 +19,7 @@
 	let shareToastBlockId = '';
 	let shareMenuBlockId = '';
 	let supportsNativeShare = false;
+	let tappedBlockId = '';
 
 	/* ── Proofread annotation map: blockId → enriched annotations ── */
 	type EnrichedAnnotation = ApiProofreadAnnotation & { authorName: string; proofreadTitle: string; stance: string; proofreadId: string };
@@ -119,6 +120,17 @@
 		return ['paragraph', 'heading', 'heading2', 'heading3', 'bullet', 'numbered', 'quote'].includes(block.type);
 	}
 
+	function blockHasContent(block: ApiBlock): boolean {
+		if (!block) return false;
+		const t = block.type;
+		if (['image', 'gallery', 'embed'].includes(t)) return !!block.data?.url || (Array.isArray(block.data?.items) && block.data.items.length > 0);
+		if (t === 'code' || t === 'canvas') return !!block.data?.code?.trim();
+		// Text-like blocks: check if there's any visible text
+		const html = htmlOf(block);
+		const stripped = html.replace(/<[^>]*>/g, '').trim();
+		return stripped.length > 0;
+	}
+
 	function handleSelect(blockId: string) {
 		if (!interactive) return;
 		dispatch('select', { blockId });
@@ -200,6 +212,19 @@
 			) {
 				shareMenuBlockId = '';
 			}
+
+			// Clear mobile tap-to-reveal when tapping outside the block
+			if (
+				tappedBlockId &&
+				!target.closest('.share-btn') &&
+				!target.closest('.share-menu')
+			) {
+				const blockEl = target.closest('.block');
+				const tappedAnchorId = `${anchorPrefix}${tappedBlockId}`;
+				if (!blockEl || blockEl.id !== tappedAnchorId) {
+					tappedBlockId = '';
+				}
+			}
 		}
 		document.addEventListener('click', handleClickOutside);
 
@@ -225,6 +250,11 @@
 
 	function toggleShareMenu(blockId: string) {
 		shareMenuBlockId = shareMenuBlockId === blockId ? '' : blockId;
+	}
+
+	function handleBlockTap(blockId: string) {
+		if (interactive) return; // don't interfere with proofread mode
+		tappedBlockId = tappedBlockId === blockId ? '' : blockId;
 	}
 
 	async function handleCopyShare(blockId: string) {
@@ -257,12 +287,15 @@
 	{@const dimOriginal = hasDraft && isTextual(block)}
 	{@const listNumber = block.type === 'numbered' ? (() => { let n = 1; for (let i = index - 1; i >= 0; i--) { if (blocks[i].type === 'numbered') n++; else break; } return n; })() : 1}
 	<div class="block-wrapper">
+		<!-- svelte-ignore a11y-no-static-element-interactions a11y-click-events-have-key-events -->
 		<div
 			id={`${anchorPrefix}${blockId}`}
 			class="block"
 			class:interactive={interactive}
 			class:selected={interactive && selectedBlockId === blockId}
 			class:proofread={hasDraft}
+			class:tapped={tappedBlockId === blockId}
+			on:click={() => handleBlockTap(blockId)}
 		>
 			{#if interactive}
 				<button
@@ -362,7 +395,7 @@
 				{/if}
 			</div>
 
-			{#if pageId}
+			{#if pageId && blockHasContent(block)}
 				<button
 					type="button"
 					class="share-btn"
@@ -1282,14 +1315,21 @@
 		}
 
 		.share-btn {
+			opacity: 0;
+			pointer-events: none;
+			right: 4px;
+			top: 4px;
+			transition: opacity 0.18s ease;
+		}
+
+		.block.tapped .share-btn {
 			opacity: 1;
-			right: 2px;
-			top: 2px;
+			pointer-events: auto;
 		}
 
 		.share-menu {
-			right: 2px;
-			top: 34px;
+			right: 4px;
+			top: 36px;
 			min-width: 156px;
 		}
 

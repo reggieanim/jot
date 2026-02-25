@@ -927,4 +927,5 @@
 			padding: 0 8px;
 		}
 	}
+
 </style>
