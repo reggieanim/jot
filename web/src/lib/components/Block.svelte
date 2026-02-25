@@ -770,7 +770,7 @@
 
 		if (loopFn) {
 			canvasRunning = true;
-			const userLoop = loopFn;
+			const userLoop: (t: number) => void = loopFn;
 			const tick = (t: number) => {
 				if (!canvasRunning) return;
 				try {
@@ -1137,7 +1137,6 @@
 						class="code-editor code-editor-overlay"
 						spellcheck="false"
 						autocomplete="off"
-						autocorrect="off"
 						autocapitalize="off"
 						wrap="off"
 						value={codeText}
@@ -1167,7 +1166,6 @@
 					class="code-editor canvas-code"
 					spellcheck="false"
 					autocomplete="off"
-					autocorrect="off"
 					autocapitalize="off"
 					wrap="off"
 					value={canvasCode}
@@ -1181,7 +1179,7 @@
 				<div class="canvas-preview">
 					<canvas bind:this={canvasEl} width={canvasWidth} height={canvasHeight} class="canvas-el"></canvas>
 				</div>
-				<figcaption class="media-caption canvas-caption">
+				<div class="media-caption canvas-caption">
 					<input
 						type="text"
 						class="caption-input"
@@ -1190,7 +1188,7 @@
 						on:input={handleCaptionInput}
 						on:keydown|stopPropagation
 					/>
-				</figcaption>
+				</div>
 			</div>
 		{:else}
 			<div

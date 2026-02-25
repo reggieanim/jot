@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
+	import hljs from 'highlight.js/lib/common';
 	import type { ApiBlock, ApiProofread, ApiProofreadAnnotation } from '$lib/editor/types';
 	import { normalizeGalleryItems } from '$lib/editor/blocks';
 	import { htmlFromBlockData } from '$lib/editor/richtext';
@@ -79,6 +80,35 @@
 		return htmlFromBlockData(block.data);
 	}
 
+	function normalizeHighlightLanguage(lang: string): string {
+		const lower = String(lang || '').toLowerCase();
+		return lower === 'bash' ? 'bash' : lower;
+	}
+
+	function escapeHtml(value: string): string {
+		return value
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&#39;');
+	}
+
+	function highlightedCodeOf(block: ApiBlock): string {
+		const code = String(block?.data?.code || '');
+		if (!code.trim()) return ' ';
+
+		try {
+			const lang = normalizeHighlightLanguage(String(block?.data?.language || ''));
+			if (lang && hljs.getLanguage(lang)) {
+				return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+			}
+			return hljs.highlightAuto(code).value;
+		} catch {
+			return escapeHtml(code);
+		}
+	}
+
 	function blockIdOf(block: ApiBlock, index: number) {
 		return block.id || `${block.type}-${index}`;
 	}
@@ -136,7 +166,7 @@
 		} catch { /* swallow in readonly */ }
 
 		if (loopFn) {
-			const userLoop = loopFn;
+			const userLoop: (t: number) => void = loopFn;
 			let running = true;
 			const tick = (t: number) => {
 				if (!running) return;
@@ -251,7 +281,7 @@
 						<span class="code-lang-badge">{block.data?.language || 'javascript'}</span>
 						<span class="code-label">Code</span>
 					</div>
-					<pre class="code-readonly"><code>{block.data?.code || ''}</code></pre>
+					<pre class="code-readonly"><code class={`hljs language-${block.data?.language || 'plaintext'}`}>{@html highlightedCodeOf(block)}</code></pre>
 				</div>
 			{:else if block.type === 'canvas'}
 				{@const cBlockId = blockIdOf(block, index)}
@@ -682,10 +712,10 @@
 
 	/* ---- Code block (readonly) ---- */
 	.code-block {
-		border: 1px solid var(--note-border, #d1d5db);
-		border-radius: 10px;
+		border: 1px solid #e7e5e4;
+		border-radius: 8px;
 		overflow: hidden;
-		background: #1e1e2e;
+		background: #f7f7f5;
 	}
 
 	.code-toolbar {
@@ -693,13 +723,14 @@
 		align-items: center;
 		gap: 10px;
 		padding: 6px 12px;
-		background: #181825;
-		border-bottom: 1px solid #313244;
+		background: #f1f1ef;
+		border-bottom: 1px solid #e7e5e4;
 	}
 
 	.code-lang-badge {
-		background: #313244;
-		color: #cdd6f4;
+		background: #ffffff;
+		color: #37352f;
+		border: 1px solid #d6d3d1;
 		border-radius: 6px;
 		padding: 3px 8px;
 		font-size: 12px;
@@ -711,14 +742,14 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		color: #6c7086;
+		color: #78716c;
 	}
 
 	.code-readonly {
 		margin: 0;
 		padding: 14px 16px;
-		background: #1e1e2e;
-		color: #cdd6f4;
+		background: #f7f7f5;
+		color: #2f3437;
 		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', monospace;
 		font-size: 13px;
 		line-height: 1.6;
@@ -728,7 +759,107 @@
 	}
 
 	.code-readonly code {
+		display: block;
+		background: transparent;
+		padding: 0;
+		margin: 0;
 		font-family: inherit;
+		font-size: inherit;
+		line-height: inherit;
+		white-space: pre;
+	}
+
+	.code-readonly :global(.hljs-comment),
+	.code-readonly :global(.hljs-quote) {
+		color: #9b9a97;
+	}
+
+	.code-readonly :global(.hljs-keyword),
+	.code-readonly :global(.hljs-selector-tag),
+	.code-readonly :global(.hljs-literal),
+	.code-readonly :global(.hljs-title),
+	.code-readonly :global(.hljs-section),
+	.code-readonly :global(.hljs-doctag),
+	.code-readonly :global(.hljs-type) {
+		color: #9a3412;
+	}
+
+	.code-readonly :global(.hljs-string),
+	.code-readonly :global(.hljs-regexp),
+	.code-readonly :global(.hljs-meta .hljs-string) {
+		color: #166534;
+	}
+
+	.code-readonly :global(.hljs-number),
+	.code-readonly :global(.hljs-symbol),
+	.code-readonly :global(.hljs-bullet),
+	.code-readonly :global(.hljs-variable),
+	.code-readonly :global(.hljs-template-variable) {
+		color: #1d4ed8;
+	}
+
+	.code-readonly :global(.hljs-function .hljs-title),
+	.code-readonly :global(.hljs-title.function_) {
+		color: #7c2d12;
+	}
+
+	:global(.editor-main.dark) .code-block {
+		background: #191919;
+		border-color: #2f2f2f;
+	}
+
+	:global(.editor-main.dark) .code-toolbar {
+		background: #222222;
+		border-bottom-color: #2f2f2f;
+	}
+
+	:global(.editor-main.dark) .code-lang-badge {
+		background: #2b2b2b;
+		color: #e8e8e8;
+		border-color: #3a3a3a;
+	}
+
+	:global(.editor-main.dark) .code-label {
+		color: #a3a3a3;
+	}
+
+	:global(.editor-main.dark) .code-readonly {
+		background: #191919;
+		color: #e8e8e8;
+	}
+
+	:global(.editor-main.dark) .code-readonly :global(.hljs-comment),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-quote) {
+		color: #7f7f7f;
+	}
+
+	:global(.editor-main.dark) .code-readonly :global(.hljs-keyword),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-selector-tag),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-literal),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-title),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-section),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-doctag),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-type) {
+		color: #f59e0b;
+	}
+
+	:global(.editor-main.dark) .code-readonly :global(.hljs-string),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-regexp),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-meta .hljs-string) {
+		color: #86efac;
+	}
+
+	:global(.editor-main.dark) .code-readonly :global(.hljs-number),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-symbol),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-bullet),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-variable),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-template-variable) {
+		color: #93c5fd;
+	}
+
+	:global(.editor-main.dark) .code-readonly :global(.hljs-function .hljs-title),
+	:global(.editor-main.dark) .code-readonly :global(.hljs-title.function_) {
+		color: #fda4af;
 	}
 
 	/* ---- Canvas block (readonly) ---- */
@@ -776,22 +907,6 @@
 	.canvas-dim-info {
 		font-size: 11px;
 		color: #585b70;
-	}
-
-	.canvas-source {
-		border-bottom: 1px solid #313244;
-	}
-
-	.canvas-source summary {
-		padding: 6px 14px;
-		font-size: 12px;
-		color: #6c7086;
-		cursor: pointer;
-		user-select: none;
-	}
-
-	.canvas-source summary:hover {
-		color: #cdd6f4;
 	}
 
 	.canvas-preview {
