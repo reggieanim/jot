@@ -5,6 +5,7 @@
 	import { goto } from '$app/navigation';
 	import type { ApiPage } from '$lib/editor/types';
 	import { user as authUser } from '$lib/stores/auth';
+	import MiniMusicPlayer from '$lib/components/MiniMusicPlayer.svelte';
 
 	const apiUrl = env.PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -213,6 +214,15 @@
 		return null;
 	}
 
+	function musicFor(p: ApiPage): { url: string; title?: string; artist?: string; coverUrl?: string } | null {
+		if (p.blocks) {
+			for (const b of p.blocks) {
+				if (b.type === 'music' && b.data?.url) return b.data;
+			}
+		}
+		return null;
+	}
+
 	$: totalProofreads = pages.reduce((s, p) => s + (p.proofread_count ?? 0), 0);
 </script>
 
@@ -306,17 +316,20 @@
 					{#each pages as p, idx (p.id)}
 						{@const img = imageFor(p)}
 						{@const emb = embedFor(p)}
+						{@const mus = musicFor(p)}
 						<a class="card" href={`/public/${p.id}`} class:tall={idx % 3 === 0} class:dark={p.dark_mode} class:cinematic={p.cinematic} class:has-user-bg={!!p.bg_color} style={cinematicStyle(p)}>
 							{#if isOwnProfile}
 								<button class="card-edit-btn" type="button" title="Edit page" on:click|preventDefault|stopPropagation={() => goto(`/editor/${p.id}`)}>
 									<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
 								</button>
 							{/if}
-							<div class="card-visual" style={!img && !emb ? `background:${patternFor(p)}` : ''}>
+							<div class="card-visual" style={!img && !emb && !mus ? `background:${patternFor(p)}` : ''}>
 								{#if img}
 									<img src={img} alt={p.title || 'Page image'} />
 								{:else if emb}
 									<iframe src={emb} title="Embedded content" loading="lazy" sandbox="allow-scripts allow-same-origin"></iframe>
+								{:else if mus}
+									<MiniMusicPlayer url={mus.url} title={mus.title || ''} artist={mus.artist || ''} coverUrl={mus.coverUrl || ''} />
 								{:else}
 									<div class="card-default-icon">✦</div>
 								{/if}
@@ -892,6 +905,55 @@
 		opacity: 0.2;
 		color: #1a1a1a;
 		user-select: none;
+	}
+
+	.card-music-preview {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		background: #1a1a1a;
+		color: #fff;
+		padding: 20px 16px;
+		box-sizing: border-box;
+	}
+
+	.card-music-icon {
+		font-size: 32px;
+		line-height: 1;
+		opacity: 0.8;
+	}
+
+	.card-music-info {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 3px;
+		text-align: center;
+		max-width: 100%;
+	}
+
+	.card-music-title {
+		font-size: 13px;
+		font-weight: 700;
+		color: #fff;
+		line-height: 1.3;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 160px;
+	}
+
+	.card-music-artist {
+		font-size: 11px;
+		color: rgba(255,255,255,0.5);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 160px;
 	}
 
 	/* ---- CARD BODY ---- */

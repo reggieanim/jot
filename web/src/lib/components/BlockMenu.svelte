@@ -14,7 +14,8 @@
 		{ id: 'quote', label: 'Quote', icon: '"', description: 'Quote block' },
 		{ id: 'divider', label: 'Divider', icon: '—', description: 'Horizontal line' },
 		{ id: 'image', label: 'Image', icon: '🖼', description: 'Upload image' },
-		{ id: 'embed', label: 'Embed', icon: '◆', description: 'Embed URL' }
+		{ id: 'embed', label: 'Embed', icon: '◆', description: 'Embed URL' },
+		{ id: 'music', label: 'Music', icon: '♫', description: 'Audio player with waveform' }
 	];
 
 	function selectType(typeId: string) {

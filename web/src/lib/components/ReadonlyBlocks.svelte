@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import hljs from 'highlight.js/lib/common';
+	import MusicPlayer from '$lib/components/MusicPlayer.svelte';
 	import type { ApiBlock, ApiProofread, ApiProofreadAnnotation } from '$lib/editor/types';
 	import { normalizeGalleryItems } from '$lib/editor/blocks';
 	import { htmlFromBlockData } from '$lib/editor/richtext';
@@ -125,6 +126,7 @@
 		const t = block.type;
 		if (['image', 'gallery', 'embed'].includes(t)) return !!block.data?.url || (Array.isArray(block.data?.items) && block.data.items.length > 0);
 		if (t === 'code' || t === 'canvas') return !!block.data?.code?.trim();
+		if (t === 'music') return !!block.data?.url;
 		// Text-like blocks: check if there's any visible text
 		const html = htmlOf(block);
 		const stripped = html.replace(/<[^>]*>/g, '').trim();
@@ -384,6 +386,16 @@
 							<figcaption class="media-caption">{block.data.caption}</figcaption>
 						{/if}
 					</figure>
+				{/if}
+			{:else if block.type === 'music'}
+				{#if block.data?.url}
+					<MusicPlayer
+						url={block.data.url}
+						title={block.data.title || ''}
+						artist={block.data.artist || ''}
+						coverUrl={block.data.coverUrl || ''}
+						readonly={true}
+					/>
 				{/if}
 			{:else}
 				<div class="editable readonly-paragraph" class:dimmed={dimOriginal} class:strike={dimOriginal && draftKind === 'strike'}>{@html htmlOf(block)}</div>

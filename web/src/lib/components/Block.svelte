@@ -3,6 +3,7 @@
 	import hljs from 'highlight.js/lib/common';
 	import { htmlFromBlockData, plainTextFromBlockData, sanitizeRichText } from '$lib/editor/richtext';
 	import { copyTextToClipboard } from '$lib/utils/clipboard';
+	import MusicPlayer from '$lib/components/MusicPlayer.svelte';
 
 	export let id: string;
 	export let type: string;
@@ -65,7 +66,8 @@
 		{ id: 'gallery', label: 'Gallery', icon: '▦', description: '2-4 image columns' },
 		{ id: 'embed', label: 'Embed', icon: '◆', description: 'Embed external content' },
 		{ id: 'code', label: 'Code', icon: '</>', description: 'Code block with syntax highlighting' },
-		{ id: 'canvas', label: 'Canvas', icon: '🎨', description: 'JavaScript canvas playground' }
+		{ id: 'canvas', label: 'Canvas', icon: '🎨', description: 'JavaScript canvas playground' },
+		{ id: 'music', label: 'Music', icon: '♫', description: 'Audio player with waveform' }
 	];
 
 	function saveText() {
@@ -1237,6 +1239,16 @@
 					/>
 				</div>
 			</div>
+		{:else if type === 'music'}
+			<div class="music-block-wrap">
+				<MusicPlayer
+					url={data?.url || ''}
+					title={data?.title || ''}
+					artist={data?.artist || ''}
+					coverUrl={data?.coverUrl || ''}
+					on:change={(e) => dispatch('update', { id, type, data: e.detail })}
+				/>
+			</div>
 		{:else}
 			<div
 				bind:this={contentEl}
@@ -2163,6 +2175,10 @@
 	}
 
 	/* ---- Canvas block ---- */
+	.music-block-wrap {
+		width: 100%;
+	}
+
 	.canvas-block {
 		border: 1px solid var(--note-border, #d1d5db);
 		border-radius: 10px;

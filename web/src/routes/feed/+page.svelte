@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import type { ApiFeedPage } from '$lib/editor/types';
 	import { user, authLoading, logout } from '$lib/stores/auth';
+	import MiniMusicPlayer from '$lib/components/MiniMusicPlayer.svelte';
 
 	const apiUrl = env.PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -131,6 +132,15 @@
 					const emb = b.data.items.find((i: any) => i.kind === 'embed' && i.value);
 					if (emb) return emb.value;
 				}
+			}
+		}
+		return null;
+	}
+
+	function musicFor(p: ApiFeedPage): { url: string; title?: string; artist?: string; coverUrl?: string } | null {
+		if (p.blocks) {
+			for (const b of p.blocks) {
+				if (b.type === 'music' && b.data?.url) return b.data;
 			}
 		}
 		return null;
@@ -309,12 +319,15 @@
 				{#each pages as p, idx (p.id)}
 					{@const img = imageFor(p)}
 					{@const emb = embedFor(p)}
+					{@const mus = musicFor(p)}
 					<a class="card" href={`/public/${p.id}`} class:tall={idx % 5 === 0} class:wide={idx % 7 === 2} class:dark={p.dark_mode} class:cinematic={p.cinematic} class:has-user-bg={!!p.bg_color} style={cinematicStyle(p)}>
-						<div class="card-visual" style={!img && !emb ? `background:${patternFor(p.id)}` : ''}>
+						<div class="card-visual" style={!img && !emb && !mus ? `background:${patternFor(p.id)}` : ''}>
 							{#if img}
 								<img src={img} alt={p.title || 'Page image'} />
 							{:else if emb}
 								<iframe src={emb} title="Embedded content" loading="lazy" sandbox="allow-scripts allow-same-origin"></iframe>
+							{:else if mus}
+								<MiniMusicPlayer url={mus.url} title={mus.title || ''} artist={mus.artist || ''} coverUrl={mus.coverUrl || ''} />
 							{:else}
 								<div class="card-default-icon">✦</div>
 							{/if}
@@ -894,6 +907,55 @@
 		opacity: 0.2;
 		color: #1a1a1a;
 		user-select: none;
+	}
+
+	.card-music-preview {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		background: #1a1a1a;
+		color: #fff;
+		padding: 20px 16px;
+		box-sizing: border-box;
+	}
+
+	.card-music-icon {
+		font-size: 32px;
+		line-height: 1;
+		opacity: 0.8;
+	}
+
+	.card-music-info {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 3px;
+		text-align: center;
+		max-width: 100%;
+	}
+
+	.card-music-title {
+		font-size: 13px;
+		font-weight: 700;
+		color: #fff;
+		line-height: 1.3;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 160px;
+	}
+
+	.card-music-artist {
+		font-size: 11px;
+		color: rgba(255,255,255,0.5);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 160px;
 	}
 
 	/* ━━ CARD BODY ━━ */

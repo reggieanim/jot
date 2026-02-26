@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import type { ApiPage } from '$lib/editor/types';
 	import { user, authLoading, logout } from '$lib/stores/auth';
+	import MiniMusicPlayer from '$lib/components/MiniMusicPlayer.svelte';
 
 	const apiUrl = env.PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -229,6 +230,16 @@
 		return null;
 	}
 
+	/** Extract music block data when no image is present */
+	function musicFor(page: ApiPage): { url: string; title?: string; artist?: string; coverUrl?: string } | null {
+		if (page.blocks) {
+			for (const b of page.blocks) {
+				if (b.type === 'music' && b.data?.url) return b.data;
+			}
+		}
+		return null;
+	}
+
 	$: published = pages.filter((p) => p.published);
 	$: drafts = pages.filter((p) => !p.published);
 </script>
@@ -439,12 +450,15 @@
 					{#each published as page, idx (page.id)}
 						{@const img = imageFor(page)}
 						{@const emb = embedFor(page)}
+						{@const mus = musicFor(page)}
 						<a class="card" href={`/public/${page.id}`} class:tall={idx % 5 === 0} class:wide={idx % 7 === 2} class:dark={page.dark_mode} class:cinematic={page.cinematic} class:has-user-bg={!!page.bg_color} class:collab={page.has_share_links} class:unlisted={!!page.unlisted} style={cinematicStyle(page)}>
-							<div class="card-visual" style={!img && !emb ? `background:${patternFor(page)}` : ''}>
+							<div class="card-visual" style={!img && !emb && !mus ? `background:${patternFor(page)}` : ''}>
 								{#if img}
 									<img src={img} alt={page.title || 'Page image'} />
 								{:else if emb}
 									<iframe src={emb} title="Embedded content" loading="lazy" sandbox="allow-scripts allow-same-origin"></iframe>
+								{:else if mus}
+									<MiniMusicPlayer url={mus.url} title={mus.title || ''} artist={mus.artist || ''} coverUrl={mus.coverUrl || ''} />
 								{:else}
 									<div class="card-default-icon">✦</div>
 								{/if}
@@ -527,12 +541,15 @@
 					{#each drafts as page, idx (page.id)}
 						{@const img = imageFor(page)}
 						{@const emb = embedFor(page)}
+						{@const mus = musicFor(page)}
 						<a class="card draft" href={`/editor/${page.id}`} class:tall={idx % 4 === 1} class:dark={page.dark_mode} class:cinematic={page.cinematic} class:has-user-bg={!!page.bg_color} style={cinematicStyle(page)}>
-							<div class="card-visual" style={!img && !emb ? `background:${patternFor(page)}` : ''}>
+							<div class="card-visual" style={!img && !emb && !mus ? `background:${patternFor(page)}` : ''}>
 								{#if img}
 									<img src={img} alt={page.title || 'Page image'} />
 								{:else if emb}
 									<iframe src={emb} title="Embedded content" loading="lazy" sandbox="allow-scripts allow-same-origin"></iframe>
+								{:else if mus}
+									<MiniMusicPlayer url={mus.url} title={mus.title || ''} artist={mus.artist || ''} coverUrl={mus.coverUrl || ''} />
 								{:else}
 									<div class="card-default-icon">✎</div>
 								{/if}
@@ -1180,6 +1197,55 @@
 		opacity: 0.2;
 		color: #1a1a1a;
 		user-select: none;
+	}
+
+	.card-music-preview {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		background: #1a1a1a;
+		color: #fff;
+		padding: 20px 16px;
+		box-sizing: border-box;
+	}
+
+	.card-music-icon {
+		font-size: 32px;
+		line-height: 1;
+		opacity: 0.8;
+	}
+
+	.card-music-info {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 3px;
+		text-align: center;
+		max-width: 100%;
+	}
+
+	.card-music-title {
+		font-size: 13px;
+		font-weight: 700;
+		color: #fff;
+		line-height: 1.3;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 160px;
+	}
+
+	.card-music-artist {
+		font-size: 11px;
+		color: rgba(255,255,255,0.5);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 160px;
 	}
 
 	/* ---- CARD BODY ---- */

@@ -4,6 +4,7 @@
 	import { normalizeGalleryItems } from '$lib/editor/blocks';
 	import { buildThemeStyle, DEFAULT_THEME, extractPaletteFromImage } from '$lib/editor/theme';
 	import { copyTextToClipboard } from '$lib/utils/clipboard';
+	import MusicPlayer from '$lib/components/MusicPlayer.svelte';
 	import type { ApiBlock, Rgb } from '$lib/editor/types';
 	import { onMount } from 'svelte';
 
@@ -89,6 +90,8 @@
 				<div class="card-visual">
 					{#if block.type === 'image' && block.data?.url}
 						<img src={block.data.url} alt="block" />
+					{:else if block.type === 'music' && block.data?.coverUrl}
+						<img src={block.data.coverUrl} alt={block.data.title || 'Music'} />
 					{:else if pageCover}
 						<img src={pageCover} alt={pageTitle} />
 					{:else}
@@ -145,8 +148,19 @@
 						{:else if block.type === 'embed'}
 							{#if block.data?.url}
 								<iframe src={block.data.url} class="embed-frame" title="Embedded content"></iframe>
-							{/if}
-						{:else}
+							{/if}					{:else if block.type === 'music'}
+						{#if block.data?.url}
+							<div class="music-embed-wrap">
+								<MusicPlayer
+									url={block.data.url}
+									title={block.data.title || ''}
+									artist={block.data.artist || ''}
+									coverUrl={block.data.coverUrl || ''}
+									readonly={true}
+									pageId={pageId}
+								/>
+							</div>
+						{/if}						{:else}
 							<div class="editable">{@html blockHtml}</div>
 						{/if}
 					</div>
@@ -491,6 +505,12 @@
 
 	.copy-btn:hover {
 		color: #1a1a1a;
+	}
+
+	.music-embed-wrap {
+		width: 100%;
+		border-radius: 12px;
+		overflow: hidden;
 	}
 
 	.copy-btn svg {

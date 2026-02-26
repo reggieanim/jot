@@ -311,6 +311,8 @@
 						? { url: '' }
 					: type === 'gallery'
 						? { items: [], columns: 2 }
+					: type === 'music'
+						? { url: '', title: '', artist: '', coverUrl: '' }
 						: { text: '' };
 
 		const newBlock: ApiBlock = {
@@ -379,6 +381,8 @@
 							? { url: '' }
 						: newType === 'gallery'
 							? { items: [], columns: 2 }
+						: newType === 'music'
+							? { url: '', title: '', artist: '', coverUrl: '' }
 							: { text: '' };
 			blocks = blocks;
 			markBlocksDirtyAndScheduleSync();
