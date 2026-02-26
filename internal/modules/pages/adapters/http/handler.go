@@ -16,6 +16,8 @@ import (
 	jnats "github.com/nats-io/nats.go"
 	"github.com/reggieanim/jot/internal/modules/pages/app"
 	"github.com/reggieanim/jot/internal/modules/pages/domain"
+	usersapp "github.com/reggieanim/jot/internal/modules/users/app"
+	usersdomain "github.com/reggieanim/jot/internal/modules/users/domain"
 	"github.com/reggieanim/jot/internal/platform/auth"
 	"github.com/reggieanim/jot/internal/platform/storage"
 	"github.com/reggieanim/jot/internal/shared/errs"
@@ -23,11 +25,12 @@ import (
 )
 
 type Handler struct {
-	service *app.Service
-	logger  *zap.Logger
-	conn    *jnats.Conn
-	subject string
-	media   storage.MediaStore
+	service     *app.Service
+	usersService *usersapp.Service
+	logger      *zap.Logger
+	conn        *jnats.Conn
+	subject     string
+	media       storage.MediaStore
 }
 
 type pageEvent struct {
@@ -122,8 +125,8 @@ type createShareLinkRequest struct {
 	Access string `json:"access"`
 }
 
-func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, subject string, logger *zap.Logger, media storage.MediaStore, jwtIssuer *auth.JWTIssuer) {
-	handler := &Handler{service: service, logger: logger, conn: conn, subject: subject, media: media}
+func RegisterRoutes(router *gin.Engine, service *app.Service, usersService *usersapp.Service, conn *jnats.Conn, subject string, logger *zap.Logger, media storage.MediaStore, jwtIssuer *auth.JWTIssuer) {
+	handler := &Handler{service: service, usersService: usersService, logger: logger, conn: conn, subject: subject, media: media}
 	v1 := router.Group("/v1")
 
 	// Public endpoints (no auth required)
@@ -134,7 +137,7 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, 
 	v1.GET("/public/proofreads/:proofreadID", handler.getProofread)
 	v1.GET("/public/pages/:pageID/collaborators", handler.listPublicCollabUsers)
 	v1.GET("/users/:userID/pages", handler.listPublishedPagesByUser)
-	v1.GET("/public/feed", handler.listFeed)
+	v1.GET("/public/feed", auth.OptionalMiddleware(jwtIssuer), handler.listFeed)
 
 	// SSE + realtime (EventSource can't send cookies/headers)
 	v1.GET("/pages/:pageID/events", handler.subscribePageEvents)
@@ -917,7 +920,30 @@ func (handler *Handler) listFeed(ctx *gin.Context) {
 		}
 	}
 	sort := ctx.DefaultQuery("sort", "new")
-	pages, err := handler.service.ListPublishedFeed(ctx.Request.Context(), limit, offset, sort)
+	
+	var authorUserIDs []string
+	if following := ctx.Query("following"); following == "true" {
+		// Require authentication for following filter
+		userID, exists := auth.GetUserID(ctx)
+		if !exists {
+			ctx.JSON(401, gin.H{"error": "authentication required for following filter"})
+			return
+		}
+		
+		// Get users that this user is following
+		followingUsers, err := handler.usersService.ListFollowing(ctx.Request.Context(), usersdomain.UserID(userID))
+		if err != nil {
+			handler.handleError(ctx, err)
+			return
+		}
+		
+		// Extract user IDs
+		for _, u := range followingUsers {
+			authorUserIDs = append(authorUserIDs, string(u.ID))
+		}
+	}
+	
+	pages, err := handler.service.ListPublishedFeed(ctx.Request.Context(), limit, offset, sort, authorUserIDs)
 	if err != nil {
 		handler.handleError(ctx, err)
 		return

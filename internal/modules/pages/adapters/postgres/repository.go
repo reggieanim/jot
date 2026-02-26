@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -260,7 +261,7 @@ func (repository *Repository) ListPublishedPagesByOwner(ctx context.Context, own
 	return pages, nil
 }
 
-func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offset int, sort string) ([]domain.FeedPage, error) {
+func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offset int, sort string, authorUserIDs []string) ([]domain.FeedPage, error) {
 	if limit <= 0 {
 		limit = 30
 	}
@@ -279,6 +280,19 @@ func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offs
 		orderClause = "ORDER BY p.published_at DESC"
 	}
 
+	var whereClause string
+	var args []interface{}
+	args = append(args, limit, offset)
+
+	if len(authorUserIDs) > 0 {
+		placeholders := make([]string, len(authorUserIDs))
+		for i, uid := range authorUserIDs {
+			placeholders[i] = fmt.Sprintf("$%d", len(args)+1)
+			args = append(args, uid)
+		}
+		whereClause = fmt.Sprintf("AND p.owner_id IN (%s)", strings.Join(placeholders, ","))
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
 			p.id, p.title, p.cover, p.published, p.unlisted, p.published_at,
@@ -295,10 +309,11 @@ func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offs
 		LEFT JOIN users u ON u.id = p.owner_id
 		WHERE p.deleted_at IS NULL AND p.published = true AND p.unlisted = false
 		%s
+		%s
 		LIMIT $1 OFFSET $2
-	`, orderClause)
+	`, whereClause, orderClause)
 
-	rows, err := repository.pool.Query(ctx, query, limit, offset)
+	rows, err := repository.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list published feed: %w", err)
 	}

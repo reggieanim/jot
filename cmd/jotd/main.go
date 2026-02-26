@@ -96,7 +96,7 @@ func main() {
 	usershttp.RegisterRoutes(router, usersService, jwtIssuer, logger, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleCallbackURL, cfg.FrontendURL)
 
 	// Pages module
-	pageshttp.RegisterRoutes(router, pagesService, natsConn, cfg.NATSSubject, logger, mediaStore, jwtIssuer)
+	pageshttp.RegisterRoutes(router, pagesService, usersService, natsConn, cfg.NATSSubject, logger, mediaStore, jwtIssuer)
 
 	// Files module: subscribes to page.deleted events and cleans up S3 objects.
 	filesService := filesapp.NewService(mediaStore, logger)

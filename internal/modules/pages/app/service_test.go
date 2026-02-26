@@ -153,10 +153,23 @@ func (repo *inMemoryRepo) ListPublishedPagesByOwner(_ context.Context, ownerID s
 	return pages, nil
 }
 
-func (repo *inMemoryRepo) ListPublishedFeed(_ context.Context, limit, offset int, _ string) ([]domain.FeedPage, error) {
+func (repo *inMemoryRepo) ListPublishedFeed(_ context.Context, limit, offset int, _ string, authorUserIDs []string) ([]domain.FeedPage, error) {
 	all := make([]domain.FeedPage, 0)
 	for _, page := range repo.store {
 		if page.DeletedAt == nil && page.Published && !page.Unlisted {
+			// Filter by author user IDs if specified
+			if len(authorUserIDs) > 0 {
+				found := false
+				for _, uid := range authorUserIDs {
+					if page.OwnerID != nil && *page.OwnerID == uid {
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
+			}
 			all = append(all, domain.FeedPage{Page: page})
 		}
 	}

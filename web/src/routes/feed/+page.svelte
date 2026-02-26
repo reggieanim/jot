@@ -22,15 +22,32 @@
 	type SortMode = 'new' | 'top' | 'hot';
 	let sort: SortMode = 'new';
 
+	type FilterMode = 'all' | 'following';
+	let filter: FilterMode = 'all';
+
 	const sortOptions: { value: SortMode; label: string }[] = [
 		{ value: 'hot', label: 'Hot' },
 		{ value: 'new', label: 'New' },
 		{ value: 'top', label: 'Top' },
 	];
 
+	const filterOptions: { value: FilterMode; label: string }[] = [
+		{ value: 'all', label: 'All' },
+		{ value: 'following', label: 'Following' },
+	];
+
 	function changeSort(newSort: SortMode) {
 		if (newSort === sort) return;
 		sort = newSort;
+		offset = 0;
+		pages = [];
+		cardTints = {};
+		loadFeed();
+	}
+
+	function changeFilter(newFilter: FilterMode) {
+		if (newFilter === filter) return;
+		filter = newFilter;
 		offset = 0;
 		pages = [];
 		cardTints = {};
@@ -170,7 +187,11 @@
 			loading = true;
 		}
 		try {
-			const res = await fetch(`${apiUrl}/v1/public/feed?limit=${LIMIT}&offset=${offset}&sort=${sort}`);
+			let url = `${apiUrl}/v1/public/feed?limit=${LIMIT}&offset=${offset}&sort=${sort}`;
+			if (filter === 'following') {
+				url += '&following=true';
+			}
+			const res = await fetch(url, { credentials: 'include' }); // Include credentials for auth
 			if (!res.ok) throw new Error('Failed to load feed');
 			const payload = await res.json();
 			const items: ApiFeedPage[] = payload?.items ?? [];
@@ -255,6 +276,20 @@
 					</button>
 				{/each}
 			</nav>
+
+			{#if $user}
+				<nav class="cover-filter">
+					{#each filterOptions as opt (opt.value)}
+						<button
+							class="filter-tab"
+							class:active={filter === opt.value}
+							on:click={() => changeFilter(opt.value)}
+						>
+							{opt.label}
+						</button>
+					{/each}
+				</nav>
+			{/if}
 		</div>
 
 		<div class="cover-nav">
@@ -313,6 +348,17 @@
 						{opt.label}
 					</button>
 				{/each}
+				{#if $user}
+					{#each filterOptions as opt (opt.value)}
+						<button
+							class="filter-tab"
+							class:active={filter === opt.value}
+							on:click={() => changeFilter(opt.value)}
+						>
+							{opt.label}
+						</button>
+					{/each}
+				{/if}
 			</div>
 
 			<div class="masonry">
@@ -573,6 +619,56 @@
 		max-height: 200px;
 	}
 
+	/* ━━ FILTER TABS (SIDEBAR) ━━ */
+	.cover-filter {
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+		margin-top: 16px;
+		border-top: 1px solid #2a2a2a;
+		padding-top: 16px;
+		opacity: 1;
+		max-height: 200px;
+		overflow: hidden;
+		transition: opacity 0.3s 0.05s, max-height 0.35s;
+	}
+
+	.filter-tab {
+		font-family: inherit;
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: #666;
+		background: none;
+		border: none;
+		padding: 8px 0;
+		cursor: pointer;
+		transition: color 0.15s, padding-left 0.15s;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		text-align: left;
+	}
+
+	.filter-tab:hover {
+		color: #fff;
+		padding-left: 4px;
+	}
+
+	.filter-tab.active {
+		color: #fff;
+	}
+
+	.filter-tab.active::before {
+		content: '';
+		display: inline-block;
+		width: 12px;
+		height: 2px;
+		background: #fff;
+		flex-shrink: 0;
+	}
+
 	.sort-tab {
 		font-family: inherit;
 		font-size: 12px;
@@ -622,6 +718,44 @@
 		margin-bottom: 24px;
 		border-bottom: 2px solid #e8e8e4;
 		padding-bottom: 0;
+	}
+
+	.mobile-sort .sort-tab,
+	.mobile-sort .filter-tab {
+		font-family: inherit;
+		font-size: 11px;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: #666;
+		background: none;
+		border: none;
+		padding: 12px 16px;
+		cursor: pointer;
+		transition: color 0.15s, background 0.15s;
+		border-radius: 6px;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.mobile-sort .sort-tab:hover,
+	.mobile-sort .filter-tab:hover {
+		color: #1a1a1a;
+		background: #f5f5f3;
+	}
+
+	.mobile-sort .sort-tab.active,
+	.mobile-sort .filter-tab.active {
+		color: #1a1a1a;
+		background: #1a1a1a;
+		color: #fff;
+	}
+
+	.mobile-sort .sort-icon {
+		width: 12px;
+		height: 12px;
+		flex-shrink: 0;
 	}
 
 	/* ━━ COVER NAV ━━ */
@@ -1433,6 +1567,11 @@
 		}
 
 		.cover-sort {
+			opacity: 1 !important;
+			max-height: none !important;
+		}
+
+		.cover-filter {
 			opacity: 1 !important;
 			max-height: none !important;
 		}
