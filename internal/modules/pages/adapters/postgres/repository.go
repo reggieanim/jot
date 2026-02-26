@@ -231,7 +231,7 @@ func (repository *Repository) ListPublishedPagesByOwner(ctx context.Context, own
 		blockRows, err := repository.pool.Query(ctx, `
 			SELECT DISTINCT ON (page_id) id, page_id, parent_id, type, position, data
 			FROM blocks
-			WHERE page_id = ANY($1) AND type IN ('image', 'embed', 'gallery')
+			WHERE page_id = ANY($1) AND type IN ('image', 'embed', 'gallery', 'music')
 			ORDER BY page_id, position
 		`, pageIDs)
 		if err != nil {
@@ -334,7 +334,7 @@ func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offs
 		blockRows, err := repository.pool.Query(ctx, `
 			SELECT DISTINCT ON (page_id) id, page_id, parent_id, type, position, data
 			FROM blocks
-			WHERE page_id = ANY($1) AND type IN ('image', 'embed', 'gallery')
+			WHERE page_id = ANY($1) AND type IN ('image', 'embed', 'gallery', 'music')
 			ORDER BY page_id, position
 		`, pageIDs)
 		if err != nil {
@@ -592,7 +592,7 @@ func (repository *Repository) ListPages(ctx context.Context, ownerID string) ([]
 		blockRows, err := repository.pool.Query(ctx, `
 			SELECT DISTINCT ON (page_id) id, page_id, parent_id, type, position, data
 			FROM blocks
-			WHERE page_id = ANY($1) AND type IN ('image', 'embed', 'gallery')
+			WHERE page_id = ANY($1) AND type IN ('image', 'embed', 'gallery', 'music')
 			ORDER BY page_id, position
 		`, pageIDs)
 		if err != nil {
