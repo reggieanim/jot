@@ -105,6 +105,62 @@ func (s *Service) Login(ctx context.Context, email, password string) (domain.Use
 	return user, token, nil
 }
 
+// LoginOrSignupWithGoogle finds an existing user by email or creates a new one
+// using identity data from a Google OAuth token. No password is required.
+func (s *Service) LoginOrSignupWithGoogle(ctx context.Context, email, displayName, avatarURL string) (domain.User, string, error) {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		return domain.User{}, "", errs.ErrInvalidInput
+	}
+
+	user, err := s.repo.GetByEmail(ctx, email)
+	if err == nil {
+		// Existing user — issue a new token.
+		token, err := s.tokens.Issue(user.ID, user.Email)
+		if err != nil {
+			return domain.User{}, "", fmt.Errorf("issue token: %w", err)
+		}
+		return user, token, nil
+	}
+
+	// New Google user — derive a username and create the account.
+	username := usernameFromEmail(email)
+	now := s.clock.Now()
+	newUser := domain.User{
+		ID:          domain.UserID(uuid.NewString()),
+		Email:       email,
+		Username:    username,
+		DisplayName: displayName,
+		AvatarURL:   avatarURL,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if newUser.DisplayName == "" {
+		newUser.DisplayName = username
+	}
+
+	if err := s.repo.Create(ctx, newUser); err != nil {
+		return domain.User{}, "", fmt.Errorf("create user: %w", err)
+	}
+
+	token, err := s.tokens.Issue(newUser.ID, newUser.Email)
+	if err != nil {
+		return domain.User{}, "", fmt.Errorf("issue token: %w", err)
+	}
+
+	return newUser, token, nil
+}
+
+// usernameFromEmail derives a username from the email local part.
+func usernameFromEmail(email string) string {
+	for i, ch := range email {
+		if ch == '@' {
+			return email[:i]
+		}
+	}
+	return email
+}
+
 // GetProfile returns the authenticated user's own profile.
 func (s *Service) GetProfile(ctx context.Context, userID domain.UserID) (domain.User, error) {
 	return s.repo.GetByID(ctx, userID)

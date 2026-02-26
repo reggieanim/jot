@@ -26,9 +26,14 @@ type Config struct {
 	S3UseSSL      bool
 	S3PublicURL   string
 	OTLPEndpoint  string
-	JWTSecret     string
-	ReadTimeout   time.Duration
-	WriteTimeout  time.Duration
+	JWTSecret           string
+	ReadTimeout         time.Duration
+	WriteTimeout        time.Duration
+	// Google OAuth
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleCallbackURL  string
+	FrontendURL        string
 }
 
 func Load() (Config, error) {
@@ -51,9 +56,13 @@ func Load() (Config, error) {
 		S3UseSSL:      getBool("JOT_S3_USE_SSL", false),
 		S3PublicURL:   getString("JOT_S3_PUBLIC_URL", "http://localhost:9000/jot-media"),
 		OTLPEndpoint:  getString("JOT_OTLP_ENDPOINT", "otel-collector:4317"),
-		JWTSecret:     getString("JOT_JWT_SECRET", "change-me-in-production"),
-		ReadTimeout:   getDuration("JOT_READ_TIMEOUT_SEC", 10),
-		WriteTimeout:  getDuration("JOT_WRITE_TIMEOUT_SEC", 10),
+		JWTSecret:           getString("JOT_JWT_SECRET", "change-me-in-production"),
+		ReadTimeout:         getDuration("JOT_READ_TIMEOUT_SEC", 10),
+		WriteTimeout:        getDuration("JOT_WRITE_TIMEOUT_SEC", 10),
+		GoogleClientID:     getString("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret: getString("GOOGLE_CLIENT_SECRET", ""),
+		GoogleCallbackURL:  getString("GOOGLE_CALLBACK_URL", "http://localhost:8080/v1/auth/google/callback"),
+		FrontendURL:        getString("FRONTEND_URL", "http://localhost:5173"),
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("JOT_DATABASE_URL is required")

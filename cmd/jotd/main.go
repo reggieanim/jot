@@ -93,7 +93,7 @@ func main() {
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret)
 	usersRepo := userspostgres.NewRepository(pool.Pool)
 	usersService := userapp.NewService(usersRepo, jwtIssuer, clock.SystemClock{})
-	usershttp.RegisterRoutes(router, usersService, jwtIssuer, logger)
+	usershttp.RegisterRoutes(router, usersService, jwtIssuer, logger, cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleCallbackURL, cfg.FrontendURL)
 
 	// Pages module
 	pageshttp.RegisterRoutes(router, pagesService, natsConn, cfg.NATSSubject, logger, mediaStore, jwtIssuer)

@@ -95,6 +95,10 @@ services:
       JOT_S3_PUBLIC_URL: "http://localhost:9000/jot-media"
       JOT_OTLP_ENDPOINT: "otel-collector:4317"
       JOT_LOG_LEVEL: "info"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      GOOGLE_CALLBACK_URL: "${GOOGLE_CALLBACK_URL:-http://localhost:8080/v1/auth/google/callback}"
+      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:5173}"
     depends_on:
       - postgres
       - nats

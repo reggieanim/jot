@@ -1,7 +1,12 @@
 package httpadapter
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -11,12 +16,16 @@ import (
 	"github.com/reggieanim/jot/internal/platform/auth"
 	"github.com/reggieanim/jot/internal/shared/errs"
 	"go.uber.org/zap"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 type Handler struct {
-	service *app.Service
-	jwt     *auth.JWTIssuer
-	logger  *zap.Logger
+	service     *app.Service
+	jwt         *auth.JWTIssuer
+	logger      *zap.Logger
+	oauthCfg    *oauth2.Config
+	frontendURL string
 }
 
 // --- request / response types ---
@@ -45,8 +54,15 @@ type authResponse struct {
 
 // --- registration ---
 
-func RegisterRoutes(router *gin.Engine, service *app.Service, jwtIssuer *auth.JWTIssuer, logger *zap.Logger) {
-	h := &Handler{service: service, jwt: jwtIssuer, logger: logger}
+func RegisterRoutes(router *gin.Engine, service *app.Service, jwtIssuer *auth.JWTIssuer, logger *zap.Logger, googleClientID, googleClientSecret, googleCallbackURL, frontendURL string) {
+	oauthCfg := &oauth2.Config{
+		ClientID:     googleClientID,
+		ClientSecret: googleClientSecret,
+		RedirectURL:  googleCallbackURL,
+		Scopes:       []string{"openid", "profile", "email"},
+		Endpoint:     google.Endpoint,
+	}
+	h := &Handler{service: service, jwt: jwtIssuer, logger: logger, oauthCfg: oauthCfg, frontendURL: frontendURL}
 
 	v1 := router.Group("/v1")
 
@@ -54,6 +70,8 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, jwtIssuer *auth.JW
 	v1.POST("/auth/signup", h.signup)
 	v1.POST("/auth/login", h.login)
 	v1.POST("/auth/logout", h.logout)
+	v1.GET("/auth/google", h.googleLogin)
+	v1.GET("/auth/google/callback", h.googleCallback)
 
 	// Public profile
 	v1.GET("/users/username/:username", h.getPublicProfile)
@@ -221,6 +239,74 @@ func (h *Handler) logout(c *gin.Context) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("jot_token", "", -1, "/", "", false, true)
 	c.Status(http.StatusNoContent)
+}
+
+// googleLogin redirects the browser to Google's OAuth consent screen.
+func (h *Handler) googleLogin(c *gin.Context) {
+	state := randomState()
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("oauth_state", state, 300, "/", "", false, true)
+	url := h.oauthCfg.AuthCodeURL(state, oauth2.AccessTypeOnline)
+	c.Redirect(http.StatusFound, url)
+}
+
+// googleCallback handles the redirect from Google after the user consents.
+func (h *Handler) googleCallback(c *gin.Context) {
+	// Validate CSRF state.
+	stateCookie, err := c.Cookie("oauth_state")
+	if err != nil || stateCookie != c.Query("state") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid oauth state"})
+		return
+	}
+	// Clear state cookie.
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("oauth_state", "", -1, "/", "", false, true)
+
+	// Exchange code for token.
+	token, err := h.oauthCfg.Exchange(context.Background(), c.Query("code"))
+	if err != nil {
+		h.logger.Error("google oauth exchange", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code exchange failed"})
+		return
+	}
+
+	// Fetch user info from Google.
+	client := h.oauthCfg.Client(context.Background(), token)
+	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+	if err != nil {
+		h.logger.Error("google userinfo", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch user info"})
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var info struct {
+		Email   string `json:"email"`
+		Name    string `json:"name"`
+		Picture string `json:"picture"`
+	}
+	if err := json.Unmarshal(body, &info); err != nil || info.Email == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user info from google"})
+		return
+	}
+
+	user, jwtToken, err := h.service.LoginOrSignupWithGoogle(c.Request.Context(), info.Email, info.Name, info.Picture)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	setTokenCookie(c, jwtToken)
+	_ = user
+	c.Redirect(http.StatusFound, h.frontendURL)
+}
+
+// randomState returns a short random string for CSRF protection.
+func randomState() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return base64.URLEncoding.EncodeToString(b)
 }
 
 // usernameFromEmail derives a username from the email local part.
