@@ -15,6 +15,7 @@ import (
 
 type MediaStore interface {
 	UploadImage(ctx context.Context, fileName string, contentType string, content []byte) (url string, key string, err error)
+	UploadAudio(ctx context.Context, fileName string, contentType string, content []byte) (url string, key string, err error)
 	DeleteObject(ctx context.Context, objectKey string) error
 	ObjectKeyFromURL(rawURL string) string
 }
@@ -87,6 +88,33 @@ func (store *S3MediaStore) UploadImage(ctx context.Context, fileName string, con
 	}
 
 	objectKey := fmt.Sprintf("images/%s%s", uuid.NewString(), ext)
+	_, err := store.client.PutObject(ctx, store.bucket, objectKey, bytes.NewReader(content), int64(len(content)), minio.PutObjectOptions{
+		ContentType: contentType,
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("upload object: %w", err)
+	}
+
+	return store.publicBaseURL + "/" + objectKey, objectKey, nil
+}
+
+func (store *S3MediaStore) UploadAudio(ctx context.Context, fileName string, contentType string, content []byte) (string, string, error) {
+	if len(content) == 0 {
+		return "", "", fmt.Errorf("empty file")
+	}
+
+	ext := strings.ToLower(path.Ext(fileName))
+	if ext == "" {
+		extensions, err := mime.ExtensionsByType(contentType)
+		if err == nil && len(extensions) > 0 {
+			ext = strings.ToLower(extensions[0])
+		}
+	}
+	if ext == "" {
+		ext = ".bin"
+	}
+
+	objectKey := fmt.Sprintf("audio/%s%s", uuid.NewString(), ext)
 	_, err := store.client.PutObject(ctx, store.bucket, objectKey, bytes.NewReader(content), int64(len(content)), minio.PutObjectOptions{
 		ContentType: contentType,
 	})

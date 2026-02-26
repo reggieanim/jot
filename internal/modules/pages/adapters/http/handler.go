@@ -144,6 +144,7 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, 
 	collab.Use(auth.OptionalMiddleware(jwtIssuer))
 	{
 		collab.POST("/pages/:pageID/media/images", handler.uploadPageImage)
+		collab.POST("/pages/:pageID/media/audio", handler.uploadPageAudio)
 		collab.POST("/pages/:pageID/presence", handler.publishPresence)
 		collab.POST("/pages/:pageID/typing", handler.publishTyping)
 		collab.GET("/pages/:pageID", handler.getPage)
@@ -157,6 +158,7 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, conn *jnats.Conn, 
 	protected.Use(auth.Middleware(jwtIssuer))
 	{
 		protected.POST("/media/images", handler.uploadImage)
+		protected.POST("/media/audio", handler.uploadAudio)
 		protected.POST("/pages", handler.createPage)
 		protected.GET("/pages", handler.listPages)
 		protected.GET("/pages/archived", handler.listArchivedPages)
@@ -539,6 +541,79 @@ func (handler *Handler) handleImageUpload(ctx *gin.Context) {
 	url, key, err := handler.media.UploadImage(ctx.Request.Context(), fileHeader.Filename, contentType, content)
 	if err != nil {
 		handler.logger.Warn("upload image failed", zap.Error(err))
+		ctx.JSON(500, gin.H{"error": "upload failed"})
+		return
+	}
+
+	ctx.JSON(201, gin.H{"url": url, "key": key})
+}
+
+func (handler *Handler) uploadAudio(ctx *gin.Context) {
+	if _, ok := auth.GetUserID(ctx); !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization token"})
+		return
+	}
+	handler.handleAudioUpload(ctx)
+}
+
+func (handler *Handler) uploadPageAudio(ctx *gin.Context) {
+	uid, _ := auth.GetUserID(ctx)
+	pageID := domain.PageID(ctx.Param("pageID"))
+	shareToken := strings.TrimSpace(ctx.Query("share"))
+	if _, _, err := handler.service.ResolvePageAccess(ctx.Request.Context(), string(uid), pageID, shareToken, domain.ShareAccessEdit); err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+	handler.handleAudioUpload(ctx)
+}
+
+func (handler *Handler) handleAudioUpload(ctx *gin.Context) {
+	const maxUploadSize = 50 << 20 // 50MB for audio
+
+	if handler.media == nil {
+		ctx.JSON(503, gin.H{"error": "media storage unavailable"})
+		return
+	}
+
+	fileHeader, err := ctx.FormFile("file")
+	if err != nil {
+		ctx.JSON(400, gin.H{"error": "file is required"})
+		return
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		ctx.JSON(400, gin.H{"error": "invalid file"})
+		return
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(io.LimitReader(file, maxUploadSize+1))
+	if err != nil {
+		ctx.JSON(400, gin.H{"error": "could not read file"})
+		return
+	}
+	if len(content) > maxUploadSize {
+		ctx.JSON(413, gin.H{"error": "audio too large (max 50MB)"})
+		return
+	}
+	if len(content) == 0 {
+		ctx.JSON(400, gin.H{"error": "empty file"})
+		return
+	}
+
+	contentType := strings.TrimSpace(fileHeader.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = http.DetectContentType(content)
+	}
+	if !strings.HasPrefix(contentType, "audio/") {
+		ctx.JSON(400, gin.H{"error": "only audio uploads are allowed"})
+		return
+	}
+
+	url, key, err := handler.media.UploadAudio(ctx.Request.Context(), fileHeader.Filename, contentType, content)
+	if err != nil {
+		handler.logger.Warn("upload audio failed", zap.Error(err))
 		ctx.JSON(500, gin.H{"error": "upload failed"})
 		return
 	}
