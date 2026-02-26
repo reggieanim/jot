@@ -1246,6 +1246,9 @@
 					title={data?.title || ''}
 					artist={data?.artist || ''}
 					coverUrl={data?.coverUrl || ''}
+					{apiUrl}
+					{pageId}
+					{shareToken}
 					on:change={(e) => dispatch('update', { id, type, data: e.detail })}
 				/>
 			</div>
