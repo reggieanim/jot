@@ -300,7 +300,8 @@
 				<a href="/editor" class="cover-nav-cta">+ New page</a>
 			{:else}
 				<a href="/login" class="cover-nav-link">Log in</a>
-				<a href="/signup" class="cover-nav-cta">Sign up</a>
+				<a href="/editor" class="cover-nav-cta">Post anonymously</a>
+				<a href="/signup" class="cover-nav-link">Create account</a>
 			{/if}
 		</div>
 
@@ -388,7 +389,11 @@
 									{:else}
 										<span class="card-author-letter">{(p.author_username || '?').charAt(0).toUpperCase()}</span>
 									{/if}
-									<span class="card-author-name" role="link" tabindex="0" on:click|stopPropagation|preventDefault={() => goto(`/user/${p.author_username}`)} on:keydown|stopPropagation={(e) => { if (e.key === 'Enter') goto(`/user/${p.author_username}`); }}>{p.author_display_name || p.author_username}</span>
+									{#if p.author_username && p.author_username !== 'anonymous'}
+										<span class="card-author-name" role="link" tabindex="0" on:click|stopPropagation|preventDefault={() => goto(`/user/${p.author_username}`)} on:keydown|stopPropagation={(e) => { if (e.key === 'Enter') goto(`/user/${p.author_username}`); }}>{p.author_display_name || p.author_username}</span>
+									{:else}
+										<span class="card-author-name">{p.author_display_name || 'Anonymous'}</span>
+									{/if}
 								</div>
 								<span class="card-date">{formatDate(p.published_at || p.updated_at)}</span>
 							</div>

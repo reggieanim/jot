@@ -2,6 +2,7 @@
 	import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
 	import hljs from 'highlight.js/lib/common';
 	import { htmlFromBlockData, plainTextFromBlockData, sanitizeRichText } from '$lib/editor/richtext';
+	import { isLocalMediaRef, putLocalMediaBlob, resolveLocalMediaObjectURL } from '$lib/editor/localMedia';
 	import { copyTextToClipboard } from '$lib/utils/clipboard';
 	import MusicPlayer from '$lib/components/MusicPlayer.svelte';
 
@@ -11,6 +12,7 @@
 	export let apiUrl = 'http://localhost:8080';
 	export let pageId = '';
 	export let shareToken = '';
+	export let allowLocalMedia = false;
 	export let published = false;
 	export let isDragging = false;
 	export let viewerSessionId = '';
@@ -20,6 +22,10 @@
 	let showShareToast = false;
 	let showShareMenu = false;
 	let supportsNativeShare = false;
+	let resolvedImageUrl = '';
+	let galleryImageUrls: Record<string, string> = {};
+	let resolveImageRun = 0;
+	let resolveGalleryRun = 0;
 	let shareMenuEl: HTMLDivElement;
 	let shareBtnEl: HTMLButtonElement;
 
@@ -46,6 +52,12 @@
 		localHtml = incomingHtml;
 	}
 	$: isRichTextType = ['paragraph', 'heading', 'heading2', 'heading3', 'bullet', 'numbered', 'quote'].includes(type);
+	$: if (type === 'image') {
+		void resolveCurrentImageUrl(String(data?.url || ''));
+	}
+	$: if (type === 'gallery') {
+		void resolveCurrentGalleryUrls(normalizeGalleryItems(data));
+	}
 
 	type GalleryItem = {
 		id: string;
@@ -481,7 +493,44 @@
 		imageInputEl?.click();
 	}
 
+	async function resolveCurrentImageUrl(url: string) {
+		const runId = ++resolveImageRun;
+		if (!url) {
+			resolvedImageUrl = '';
+			return;
+		}
+		if (!isLocalMediaRef(url)) {
+			resolvedImageUrl = url;
+			return;
+		}
+		const objectUrl = await resolveLocalMediaObjectURL(url);
+		if (runId !== resolveImageRun) return;
+		resolvedImageUrl = objectUrl || '';
+	}
+
+	async function resolveCurrentGalleryUrls(items: GalleryItem[]) {
+		const runId = ++resolveGalleryRun;
+		if (!items.length) {
+			galleryImageUrls = {};
+			return;
+		}
+		const entries = await Promise.all(
+			items.map(async (item) => {
+				if (item.kind !== 'image') return [item.id, item.value] as const;
+				if (!isLocalMediaRef(item.value)) return [item.id, item.value] as const;
+				const objectUrl = await resolveLocalMediaObjectURL(item.value);
+				return [item.id, objectUrl || item.value] as const;
+			})
+		);
+		if (runId !== resolveGalleryRun) return;
+		galleryImageUrls = Object.fromEntries(entries);
+	}
+
 	async function uploadImageFile(file: File): Promise<string> {
+		if (allowLocalMedia && !pageId && !shareToken) {
+			return putLocalMediaBlob(file);
+		}
+
 		const formData = new FormData();
 		formData.append('file', file);
 
@@ -1079,7 +1128,7 @@
 						on:drop={handleMediaDrop}
 					>
 						<img
-							src={data.url}
+							src={resolvedImageUrl || (isLocalMediaRef(data?.url) ? '' : data.url)}
 							alt={data.caption || 'block'}
 							class="block-image"
 						/>
@@ -1096,16 +1145,21 @@
 					</figcaption>
 				</figure>
 			{:else}
-				<button
-					type="button"
-					class="image-placeholder"
-					on:click={triggerImageUpload}
-					on:dragover|preventDefault|stopPropagation={() => {}}
-					on:drop={handleMediaDrop}
-				>
-					<span>🖼</span>
-					<span>Click to add image</span>
-				</button>
+				<div>
+					<button
+						type="button"
+						class="image-placeholder"
+						on:click={triggerImageUpload}
+						on:dragover|preventDefault|stopPropagation={() => {}}
+						on:drop={handleMediaDrop}
+					>
+						<span>🖼</span>
+						<span>Click to add image</span>
+					</button>
+					{#if allowLocalMedia && !pageId && !shareToken}
+						<div class="local-media-hint">Stored locally until publish</div>
+					{/if}
+				</div>
 			{/if}
 		{:else if type === 'gallery'}
 			{@const items = normalizeGalleryItems(data)}
@@ -1124,16 +1178,21 @@
 				</div>
 
 				{#if items.length === 0}
-					<button type="button" class="image-placeholder" on:click={triggerGalleryUpload}>
-						<span>🖼</span>
-						<span>Add images or drag text/image blocks here</span>
-					</button>
+					<div>
+						<button type="button" class="image-placeholder" on:click={triggerGalleryUpload}>
+							<span>🖼</span>
+							<span>Add images or drag text/image blocks here</span>
+						</button>
+						{#if allowLocalMedia && !pageId && !shareToken}
+							<div class="local-media-hint">Stored locally until publish</div>
+						{/if}
+					</div>
 				{:else}
 					<div class="gallery-grid" style="--gallery-cols: {columns};">
 						{#each items as item, i (item.id)}
 							<div class="gallery-item" role="group" aria-label={`Gallery card ${i + 1}`} class:text-card={item.kind === 'text'} draggable="true" on:dragstart={(e) => handleGalleryItemDragStart(e, item)}>
 								{#if item.kind === 'image'}
-									<img src={item.value} alt={`gallery-${i}`} class="gallery-image" />
+										<img src={galleryImageUrls[item.id] || (isLocalMediaRef(item.value) ? '' : item.value)} alt={`gallery-${i}`} class="gallery-image" />
 								{:else if item.kind === 'embed'}
 									<iframe src={item.value} title={`gallery-embed-${i}`} class="gallery-embed"></iframe>
 								{:else}
@@ -1249,6 +1308,7 @@
 					{apiUrl}
 					{pageId}
 					{shareToken}
+					{allowLocalMedia}
 					on:change={(e) => dispatch('update', { id, type, data: e.detail })}
 				/>
 			</div>
@@ -1534,6 +1594,15 @@
 
 	.image-input {
 		display: none;
+	}
+
+	.local-media-hint {
+		margin-top: 8px;
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		opacity: 0.7;
+		color: var(--note-muted, #6b7280);
 	}
 
 	/* ---- Media figure + caption ---- */

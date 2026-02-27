@@ -70,6 +70,7 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, jwtIssuer *auth.JW
 	v1.POST("/auth/signup", h.signup)
 	v1.POST("/auth/login", h.login)
 	v1.POST("/auth/logout", h.logout)
+	v1.GET("/auth/me", auth.OptionalMiddleware(jwtIssuer), h.me)
 	v1.GET("/auth/google", h.googleLogin)
 	v1.GET("/auth/google/callback", h.googleCallback)
 
@@ -80,7 +81,6 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, jwtIssuer *auth.JW
 	protected := v1.Group("")
 	protected.Use(auth.Middleware(jwtIssuer))
 	{
-		protected.GET("/auth/me", h.me)
 		protected.PUT("/auth/me", h.updateProfile)
 
 		protected.POST("/users/:userID/follow", h.follow)
@@ -130,7 +130,11 @@ func (h *Handler) login(c *gin.Context) {
 }
 
 func (h *Handler) me(c *gin.Context) {
-	uid, _ := auth.GetUserID(c)
+	uid, exists := auth.GetUserID(c)
+	if !exists {
+		c.Status(http.StatusNoContent)
+		return
+	}
 	user, err := h.service.GetProfile(c.Request.Context(), uid)
 	if err != nil {
 		h.handleError(c, err)

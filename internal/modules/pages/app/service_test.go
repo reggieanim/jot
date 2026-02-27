@@ -264,3 +264,28 @@ func TestCreateAndGetPage(t *testing.T) {
 		t.Fatalf("expected owner_id owner-1, got %v", got.OwnerID)
 	}
 }
+
+func TestCreateAnonymousPublishedPage(t *testing.T) {
+	service := NewService(newInMemoryRepo(), noOpEvents{}, fakeClock{now: time.Date(2026, 2, 12, 0, 0, 0, 0, time.UTC)})
+	blocks := []domain.Block{{
+		ID:       "b1",
+		Type:     domain.BlockTypeParagraph,
+		Position: 0,
+		Data:     json.RawMessage(`{"text":"hello anonymously"}`),
+	}}
+
+	page, err := service.CreateAnonymousPublishedPage(context.Background(), "Anon post", nil, blocks, false, true, 65, "")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if page.OwnerID != nil {
+		t.Fatalf("expected nil owner_id for anonymous page, got %v", page.OwnerID)
+	}
+	if !page.Published {
+		t.Fatalf("expected anonymous page to be published")
+	}
+	if page.PublishedAt == nil {
+		t.Fatalf("expected published_at to be set")
+	}
+}

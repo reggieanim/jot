@@ -41,7 +41,51 @@ func (service *Service) CreatePageWithSettings(
 	mood int,
 	bgColor string,
 ) (domain.Page, error) {
-	if ownerID == "" || title == "" {
+	if ownerID == "" {
+		return domain.Page{}, errs.ErrInvalidInput
+	}
+	return service.createPageWithSettings(ctx, &ownerID, title, cover, blocks, darkMode, cinematic, mood, bgColor)
+}
+
+func (service *Service) CreateAnonymousPublishedPage(
+	ctx context.Context,
+	title string,
+	cover *string,
+	blocks []domain.Block,
+	darkMode bool,
+	cinematic bool,
+	mood int,
+	bgColor string,
+) (domain.Page, error) {
+	created, err := service.createPageWithSettings(ctx, nil, title, cover, blocks, darkMode, cinematic, mood, bgColor)
+	if err != nil {
+		return domain.Page{}, err
+	}
+	if err := service.repo.SetPublished(ctx, created.ID, true, false); err != nil {
+		return domain.Page{}, fmt.Errorf("set anonymous page published: %w", err)
+	}
+	published, err := service.repo.GetByID(ctx, created.ID)
+	if err != nil {
+		return domain.Page{}, fmt.Errorf("fetch anonymous published page: %w", err)
+	}
+	if err := service.events.BlocksUpdated(ctx, published); err != nil {
+		return domain.Page{}, fmt.Errorf("publish anonymous page updated: %w", err)
+	}
+	return published, nil
+}
+
+func (service *Service) createPageWithSettings(
+	ctx context.Context,
+	ownerID *string,
+	title string,
+	cover *string,
+	blocks []domain.Block,
+	darkMode bool,
+	cinematic bool,
+	mood int,
+	bgColor string,
+) (domain.Page, error) {
+	if title == "" {
 		return domain.Page{}, errs.ErrInvalidInput
 	}
 	if mood < 0 {
@@ -53,7 +97,7 @@ func (service *Service) CreatePageWithSettings(
 	now := service.clock.Now()
 	page := domain.Page{
 		ID:        domain.PageID(uuid.NewString()),
-		OwnerID:   &ownerID,
+		OwnerID:   ownerID,
 		Title:     title,
 		Cover:     cover,
 		Published: false,

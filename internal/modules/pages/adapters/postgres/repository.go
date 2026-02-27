@@ -302,8 +302,8 @@ func (repository *Repository) ListPublishedFeed(ctx context.Context, limit, offs
 			(SELECT count(*) FROM blocks b WHERE b.page_id = p.id) AS block_count,
 			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count,
 			EXISTS(SELECT 1 FROM page_share_links s WHERE s.page_id = p.id AND s.revoked = false) AS has_share_links,
-			COALESCE(u.username, '') AS author_username,
-			COALESCE(u.display_name, '') AS author_display_name,
+			COALESCE(u.username, 'anonymous') AS author_username,
+			COALESCE(NULLIF(u.display_name, ''), 'Anonymous') AS author_display_name,
 			COALESCE(u.avatar_url, '') AS author_avatar_url
 		FROM pages p
 		LEFT JOIN users u ON u.id = p.owner_id
@@ -515,8 +515,8 @@ func (repository *Repository) GetByIDWithAuthor(ctx context.Context, pageID doma
 			p.created_at, p.updated_at, p.deleted_at,
 			(SELECT count(*) FROM page_reads r WHERE r.page_id = p.id) AS read_count,
 			EXISTS(SELECT 1 FROM page_share_links s WHERE s.page_id = p.id AND s.revoked = false) AS has_share_links,
-			COALESCE(u.username, '') AS author_username,
-			COALESCE(u.display_name, '') AS author_display_name,
+			COALESCE(u.username, 'anonymous') AS author_username,
+			COALESCE(NULLIF(u.display_name, ''), 'Anonymous') AS author_display_name,
 			COALESCE(u.avatar_url, '') AS author_avatar_url
 		FROM pages p
 		LEFT JOIN users u ON u.id = p.owner_id

@@ -25,12 +25,12 @@ import (
 )
 
 type Handler struct {
-	service     *app.Service
+	service      *app.Service
 	usersService *usersapp.Service
-	logger      *zap.Logger
-	conn        *jnats.Conn
-	subject     string
-	media       storage.MediaStore
+	logger       *zap.Logger
+	conn         *jnats.Conn
+	subject      string
+	media        storage.MediaStore
 }
 
 type pageEvent struct {
@@ -136,6 +136,9 @@ func RegisterRoutes(router *gin.Engine, service *app.Service, usersService *user
 	v1.POST("/public/pages/:pageID/proofreads", handler.createProofread)
 	v1.GET("/public/proofreads/:proofreadID", handler.getProofread)
 	v1.GET("/public/pages/:pageID/collaborators", handler.listPublicCollabUsers)
+	v1.POST("/public/media/images", handler.uploadPublicImage)
+	v1.POST("/public/media/audio", handler.uploadPublicAudio)
+	v1.POST("/public/pages", handler.createAnonymousPage)
 	v1.GET("/users/:userID/pages", handler.listPublishedPagesByUser)
 	v1.GET("/public/feed", auth.OptionalMiddleware(jwtIssuer), handler.listFeed)
 
@@ -497,6 +500,10 @@ func (handler *Handler) uploadPageImage(ctx *gin.Context) {
 	handler.handleImageUpload(ctx)
 }
 
+func (handler *Handler) uploadPublicImage(ctx *gin.Context) {
+	handler.handleImageUpload(ctx)
+}
+
 func (handler *Handler) handleImageUpload(ctx *gin.Context) {
 	const maxUploadSize = 15 << 20
 
@@ -567,6 +574,10 @@ func (handler *Handler) uploadPageAudio(ctx *gin.Context) {
 		handler.handleError(ctx, err)
 		return
 	}
+	handler.handleAudioUpload(ctx)
+}
+
+func (handler *Handler) uploadPublicAudio(ctx *gin.Context) {
 	handler.handleAudioUpload(ctx)
 }
 
@@ -754,6 +765,31 @@ func (handler *Handler) createPage(ctx *gin.Context) {
 	ctx.JSON(201, page)
 }
 
+func (handler *Handler) createAnonymousPage(ctx *gin.Context) {
+	var body createPageRequest
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(400, gin.H{"error": "invalid json body"})
+		return
+	}
+
+	page, err := handler.service.CreateAnonymousPublishedPage(
+		ctx.Request.Context(),
+		body.Title,
+		body.Cover,
+		body.Blocks,
+		body.DarkMode,
+		body.Cinematic,
+		body.Mood,
+		body.BgColor,
+	)
+	if err != nil {
+		handler.handleError(ctx, err)
+		return
+	}
+
+	ctx.JSON(201, page)
+}
+
 func (handler *Handler) getPage(ctx *gin.Context) {
 	uid, _ := auth.GetUserID(ctx)
 	pageID := domain.PageID(ctx.Param("pageID"))
@@ -920,7 +956,7 @@ func (handler *Handler) listFeed(ctx *gin.Context) {
 		}
 	}
 	sort := ctx.DefaultQuery("sort", "new")
-	
+
 	var authorUserIDs []string
 	if following := ctx.Query("following"); following == "true" {
 		// Require authentication for following filter
@@ -929,20 +965,20 @@ func (handler *Handler) listFeed(ctx *gin.Context) {
 			ctx.JSON(401, gin.H{"error": "authentication required for following filter"})
 			return
 		}
-		
+
 		// Get users that this user is following
 		followingUsers, err := handler.usersService.ListFollowing(ctx.Request.Context(), usersdomain.UserID(userID))
 		if err != nil {
 			handler.handleError(ctx, err)
 			return
 		}
-		
+
 		// Extract user IDs
 		for _, u := range followingUsers {
 			authorUserIDs = append(authorUserIDs, string(u.ID))
 		}
 	}
-	
+
 	pages, err := handler.service.ListPublishedFeed(ctx.Request.Context(), limit, offset, sort, authorUserIDs)
 	if err != nil {
 		handler.handleError(ctx, err)

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick as svelteTick, createEventDispatcher } from 'svelte';
+	import { isLocalMediaRef, putLocalMediaBlob, resolveLocalMediaObjectURL } from '$lib/editor/localMedia';
 
 	export let url: string = '';
 	export let title: string = '';
@@ -9,6 +10,7 @@
 	export let apiUrl: string = 'http://localhost:8080';
 	export let pageId: string = '';
 	export let shareToken: string = '';
+	export let allowLocalMedia: boolean = false;
 
 	const dispatch = createEventDispatcher<{
 		change: { url: string; title: string; artist: string; coverUrl: string };
@@ -24,6 +26,10 @@
 	let coverFileInputEl: HTMLInputElement;
 	let uploading = false;
 	let uploadError = '';
+	let resolvedAudioUrl = '';
+	let resolvedCoverUrl = '';
+	let resolveAudioRun = 0;
+	let resolveCoverRun = 0;
 
 	// ── Playback state ─────────────────────────────────────────────────────────
 	let audioEl: HTMLAudioElement;
@@ -41,6 +47,17 @@
 	let scrubbing = false;
 	let animFrameId: number;
 	let mounted = false;
+	let lastWaveSource = '';
+
+	$: void resolveAudioSource();
+	$: void resolveCoverSource();
+	$: {
+		const waveSource = (resolvedAudioUrl || (isLocalMediaRef(url) ? '' : url) || '').trim();
+		if (!editing && mounted && waveSource && waveSource !== lastWaveSource) {
+			lastWaveSource = waveSource;
+			void loadPeaks(waveSource);
+		}
+	}
 
 	// ── Waveform helpers ───────────────────────────────────────────────────────
 	function generateFallback(count: number): number[] {
@@ -303,16 +320,50 @@
 		return '/v1/media/audio';
 	}
 
+	async function resolveAudioSource() {
+		const runId = ++resolveAudioRun;
+		if (!url) {
+			resolvedAudioUrl = '';
+			return;
+		}
+		if (!isLocalMediaRef(url)) {
+			resolvedAudioUrl = url;
+			return;
+		}
+		const objectUrl = await resolveLocalMediaObjectURL(url);
+		if (runId !== resolveAudioRun) return;
+		resolvedAudioUrl = objectUrl || '';
+	}
+
+	async function resolveCoverSource() {
+		const runId = ++resolveCoverRun;
+		if (!coverUrl) {
+			resolvedCoverUrl = '';
+			return;
+		}
+		if (!isLocalMediaRef(coverUrl)) {
+			resolvedCoverUrl = coverUrl;
+			return;
+		}
+		const objectUrl = await resolveLocalMediaObjectURL(coverUrl);
+		if (runId !== resolveCoverRun) return;
+		resolvedCoverUrl = objectUrl || '';
+	}
+
 	async function handleAudioFilePick(e: Event) {
 		const file = (e.target as HTMLInputElement).files?.[0];
 		if (!file) return;
 		uploadError = ''; uploading = true;
 		try {
-			const form = new FormData(); form.append('file', file);
-			const res = await fetch(`${apiUrl}${buildAudioEndpoint()}`, { method: 'POST', credentials: 'include', body: form });
-			if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as any).error || 'Upload failed');
-			const payload = await res.json() as any;
-			draftUrl = payload.url;
+			if (allowLocalMedia && !pageId && !shareToken) {
+				draftUrl = await putLocalMediaBlob(file);
+			} else {
+				const form = new FormData(); form.append('file', file);
+				const res = await fetch(`${apiUrl}${buildAudioEndpoint()}`, { method: 'POST', credentials: 'include', body: form });
+				if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as any).error || 'Upload failed');
+				const payload = await res.json() as any;
+				draftUrl = payload.url;
+			}
 			if (!draftTitle) draftTitle = file.name.replace(/\.[^.]+$/, '');
 		} catch (err: any) { uploadError = err.message || 'Upload failed'; }
 		finally { uploading = false; (e.target as HTMLInputElement).value = ''; }
@@ -323,12 +374,16 @@
 		if (!file) return;
 		uploadError = ''; uploading = true;
 		try {
-			const form = new FormData(); form.append('file', file);
-			const endpoint = pageId ? `${apiUrl}/v1/pages/${encodeURIComponent(pageId)}/media/images` : `${apiUrl}/v1/media/images`;
-			const res = await fetch(endpoint, { method: 'POST', credentials: 'include', body: form });
-			if (!res.ok) throw new Error('Cover upload failed');
-			const payload = await res.json() as any;
-			if (payload?.url) draftCoverUrl = payload.url;
+			if (allowLocalMedia && !pageId && !shareToken) {
+				draftCoverUrl = await putLocalMediaBlob(file);
+			} else {
+				const form = new FormData(); form.append('file', file);
+				const endpoint = pageId ? `${apiUrl}/v1/pages/${encodeURIComponent(pageId)}/media/images` : `${apiUrl}/v1/media/images`;
+				const res = await fetch(endpoint, { method: 'POST', credentials: 'include', body: form });
+				if (!res.ok) throw new Error('Cover upload failed');
+				const payload = await res.json() as any;
+				if (payload?.url) draftCoverUrl = payload.url;
+			}
 		} catch (err: any) { uploadError = err.message || 'Cover upload failed'; }
 		finally { uploading = false; (e.target as HTMLInputElement).value = ''; }
 	}
@@ -342,7 +397,6 @@
 		coverUrl = draftCoverUrl.trim();
 		editing = false;
 		dispatch('change', { url, title, artist, coverUrl });
-		loadPeaks(url);
 	}
 
 	function enterEdit() {
@@ -374,8 +428,8 @@
 
 	onMount(async () => {
 		mounted = true;
-		if (!editing && url) {
-			await loadPeaks(url);
+		if (!editing && (resolvedAudioUrl || url)) {
+			await loadPeaks(resolvedAudioUrl || url);
 		}
 	});
 
@@ -392,6 +446,9 @@
 		<div class="setup-form">
 			<div class="setup-icon">♫</div>
 			<p class="setup-hint">Upload an MP3 or paste a direct audio URL</p>
+			{#if allowLocalMedia && !pageId && !shareToken}
+				<p class="setup-hint local-media-hint">Stored locally until publish</p>
+			{/if}
 			<div class="setup-fields">
 				<div class="setup-upload-row">
 					<button
@@ -416,7 +473,7 @@
 						style="display:none" on:change={handleAudioFilePick} />
 				</div>
 				{#if uploadError}<p class="upload-error">{uploadError}</p>{/if}
-				{#if draftUrl && !draftUrl.startsWith('blob:')}
+				{#if draftUrl && !draftUrl.startsWith('blob:') && !isLocalMediaRef(draftUrl)}
 					<p class="url-preview">{draftUrl}</p>
 				{/if}
 				<div class="setup-row">
@@ -443,7 +500,7 @@
 		<!-- svelte-ignore a11y-media-has-caption -->
 		<audio
 			bind:this={audioEl}
-			src={url}
+			src={resolvedAudioUrl || (isLocalMediaRef(url) ? '' : url)}
 			preload="metadata"
 			on:play={handlePlay}
 			on:pause={handlePause}
@@ -457,7 +514,7 @@
 			<div class="player-top">
 				<div class="cover-art">
 					{#if coverUrl}
-						<img src={coverUrl} alt={title} class="cover-img" />
+						<img src={resolvedCoverUrl || (isLocalMediaRef(coverUrl) ? '' : coverUrl)} alt={title} class="cover-img" />
 					{:else}
 						<div class="cover-placeholder">
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -609,6 +666,13 @@
 		font-size: 13px;
 		color: var(--note-muted, #6b7280);
 		text-align: center;
+	}
+
+	.local-media-hint {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		opacity: 0.82;
 	}
 
 	.setup-upload-row {

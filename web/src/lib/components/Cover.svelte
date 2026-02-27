@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { env } from '$env/dynamic/public';
+	import { putLocalMediaBlob, isLocalMediaRef, resolveLocalMediaObjectURL } from '$lib/editor/localMedia';
 	import type { ApiBlock } from '$lib/editor/types';
 
 	export let cover: string | null;
 	export let apiUrl = env.PUBLIC_API_URL || 'http://localhost:8080';
 	export let pageId = '';
 	export let shareToken = '';
+	export let allowLocalMedia = false;
 	export let readonly = false;
 	export let title = 'Untitled';
 	export let blocks: ApiBlock[] = [];
@@ -14,6 +16,10 @@
 	const dispatch = createEventDispatcher();
 
 	let fileInput: HTMLInputElement;
+	let resolvedCoverUrl = '';
+	let resolveCoverRun = 0;
+
+	$: void resolveCurrentCover();
 
 	/* ── TOC: derive entries from heading blocks ── */
 	type TocEntry = { id: string; label: string; type: string; icon: string; index: number; depth: number; isLast: boolean };
@@ -95,6 +101,10 @@
 	}
 
 	async function uploadImage(file: File): Promise<string> {
+		if (allowLocalMedia && !pageId && !shareToken) {
+			return putLocalMediaBlob(file);
+		}
+
 		const formData = new FormData();
 		formData.append('file', file);
 
@@ -118,6 +128,21 @@
 		}
 
 		return url;
+	}
+
+	async function resolveCurrentCover() {
+		const runId = ++resolveCoverRun;
+		if (!cover) {
+			resolvedCoverUrl = '';
+			return;
+		}
+		if (!isLocalMediaRef(cover)) {
+			resolvedCoverUrl = cover;
+			return;
+		}
+		const objectUrl = await resolveLocalMediaObjectURL(cover);
+		if (runId !== resolveCoverRun) return;
+		resolvedCoverUrl = objectUrl || '';
 	}
 
 	async function handleImageChange(e: Event) {
@@ -154,7 +179,7 @@
 
 	<!-- Background cover image (always behind TOC) -->
 	{#if cover}
-		<img src={cover} alt="page cover" class="cover-bg-image" />
+		<img src={resolvedCoverUrl || (isLocalMediaRef(cover) ? '' : cover)} alt="page cover" class="cover-bg-image" />
 		<div class="cover-overlay"></div>
 	{/if}
 
@@ -222,6 +247,9 @@
 						</button>
 					{/if}
 				</div>
+				{#if allowLocalMedia && !pageId && !shareToken}
+					<div class="local-media-hint">Stored locally until publish</div>
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -641,6 +669,14 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 6px;
+	}
+
+	.local-media-hint {
+		margin-top: 8px;
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		opacity: 0.72;
 	}
 
 	.cover-action-btn {

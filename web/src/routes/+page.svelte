@@ -257,7 +257,8 @@
 		<nav class="landing-nav-links">
 			<a href="/feed">Feed</a>
 			<a href="/login">Log in</a>
-			<a href="/signup" class="landing-nav-cta">Try it free</a>
+			<a href="/signup">Sign up</a>
+			<a href="/editor" class="landing-nav-cta">Post anonymously</a>
 		</nav>
 	</header>
 

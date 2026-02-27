@@ -7,6 +7,7 @@
 	import Cover from '$lib/components/Cover.svelte';
 	import { user as authUser } from '$lib/stores/auth';
 	import { getBlockAsGalleryItems, normalizeGalleryItems, toGalleryData } from '$lib/editor/blocks';
+	import { deleteLocalMediaRef, getLocalMediaBlobByRef, isLocalMediaRef } from '$lib/editor/localMedia';
 	import { parseImportedDocument } from '$lib/editor/importers';
 	import { buildThemeStyle, DEFAULT_THEME, extractPaletteFromImage } from '$lib/editor/theme';
 	import { copyTextToClipboard } from '$lib/utils/clipboard';
@@ -70,6 +71,8 @@
 	let viewerSessionId = '';
 	let viewerName = '';
 	let viewerAvatarUrl = '';
+	let localDraftTimer: ReturnType<typeof setTimeout> | null = null;
+	let localDraftHydrated = false;
 	let typingLocks: Record<string, { sessionId: string; userName: string; expiresAt: number }> = {};
 	let activeUsers: Record<string, { sessionId: string; userName: string; userAvatarUrl: string; lastSeen: number }> = {};
 	let visibleUsers: Array<{ sessionId: string; userName: string; userAvatarUrl: string; lastSeen: number }> = [];
@@ -77,6 +80,8 @@
 	const typingHeartbeat: Record<string, number> = {};
 	let presenceHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 	const SYNC_DEBOUNCE_MS = 320;
+	const LOCAL_DRAFT_DEBOUNCE_MS = 240;
+	const LOCAL_DRAFT_KEY = 'jot.editor.local-draft.v1';
 	const TYPING_HEARTBEAT_MS = 1200;
 	const TYPING_LOCK_TTL_MS = 3500;
 	const PRESENCE_HEARTBEAT_MS = 5000;
@@ -85,7 +90,8 @@
 		.filter((user) => Date.now() - user.lastSeen <= PRESENCE_TTL_MS)
 		.sort((a, b) => (a.sessionId === viewerSessionId ? -1 : b.sessionId === viewerSessionId ? 1 : a.userName.localeCompare(b.userName)));
 	$: canEdit = accessMode === 'owner' || accessMode === 'edit';
-	$: canManage = accessMode === 'owner';
+	$: isAnonymousDraft = !$authUser && !pageId && !shareToken;
+	$: canManage = accessMode === 'owner' && (!!$authUser || isAnonymousDraft);
 
 	function generateClientId() {
 		if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -98,6 +104,225 @@
 		if (!shareToken) return `${apiUrl}${path}`;
 		const sep = path.includes('?') ? '&' : '?';
 		return `${apiUrl}${path}${sep}share=${encodeURIComponent(shareToken)}`;
+	}
+
+	type LocalEditorDraft = {
+		version: 1;
+		title: string;
+		cover: string | null;
+		blocks: ApiBlock[];
+		darkMode: boolean;
+		cinematicEnabled: boolean;
+		moodStrength: number;
+		bgColor: string;
+		savedAt: string;
+	};
+
+	function shouldPersistLocalDraft() {
+		if (typeof window === 'undefined') return false;
+		if (pageId) return false;
+		if (shareToken) return false;
+		return true;
+	}
+
+	function clearLocalDraft() {
+		if (typeof window === 'undefined') return;
+		window.localStorage.removeItem(LOCAL_DRAFT_KEY);
+	}
+
+	function collectLocalMediaRefs(currentCover: string | null, currentBlocks: ApiBlock[]): string[] {
+		const refs = new Set<string>();
+		if (currentCover && isLocalMediaRef(currentCover)) refs.add(currentCover);
+		for (const block of currentBlocks) {
+			if (block.type === 'image') {
+				const value = String(block.data?.url || '');
+				if (isLocalMediaRef(value)) refs.add(value);
+			}
+			if (block.type === 'gallery' && Array.isArray(block.data?.items)) {
+				for (const item of block.data.items) {
+					if (item?.kind !== 'image') continue;
+					const value = String(item?.value || '');
+					if (isLocalMediaRef(value)) refs.add(value);
+				}
+			}
+			if (block.type === 'music') {
+				const musicUrl = String(block.data?.url || '');
+				const musicCoverUrl = String(block.data?.coverUrl || '');
+				if (isLocalMediaRef(musicUrl)) refs.add(musicUrl);
+				if (isLocalMediaRef(musicCoverUrl)) refs.add(musicCoverUrl);
+			}
+		}
+		return Array.from(refs);
+	}
+
+	async function uploadAnonymousImageBlob(blob: Blob, fileName: string): Promise<string> {
+		const formData = new FormData();
+		formData.append('file', blob, fileName);
+		const response = await fetch(`${apiUrl}/v1/public/media/images`, {
+			method: 'POST',
+			credentials: 'include',
+			body: formData
+		});
+		if (!response.ok) throw new Error('anonymous image upload failed');
+		const payload = await response.json();
+		const url = payload?.url;
+		if (typeof url !== 'string' || !url) throw new Error('invalid upload response');
+		return url;
+	}
+
+	async function uploadAnonymousAudioBlob(blob: Blob, fileName: string): Promise<string> {
+		const formData = new FormData();
+		formData.append('file', blob, fileName);
+		const response = await fetch(`${apiUrl}/v1/public/media/audio`, {
+			method: 'POST',
+			credentials: 'include',
+			body: formData
+		});
+		if (!response.ok) throw new Error('anonymous audio upload failed');
+		const payload = await response.json();
+		const url = payload?.url;
+		if (typeof url !== 'string' || !url) throw new Error('invalid audio upload response');
+		return url;
+	}
+
+	function extensionForBlob(blob: Blob, fallback: string) {
+		const type = (blob.type || '').toLowerCase();
+		if (type.includes('jpeg') || type.includes('jpg')) return 'jpg';
+		if (type.includes('png')) return 'png';
+		if (type.includes('webp')) return 'webp';
+		if (type.includes('gif')) return 'gif';
+		if (type.includes('mpeg') || type.includes('mp3')) return 'mp3';
+		if (type.includes('wav')) return 'wav';
+		if (type.includes('ogg')) return 'ogg';
+		if (type.includes('flac')) return 'flac';
+		if (type.includes('aac')) return 'aac';
+		return fallback;
+	}
+
+	async function materializeAnonymousMediaForPublish() {
+		const replacement = new Map<string, string>();
+		const localRefs = collectLocalMediaRefs(cover, blocks);
+		const musicAudioRefs = new Set<string>();
+		for (const block of blocks) {
+			if (block.type !== 'music') continue;
+			const musicUrl = String(block.data?.url || '');
+			if (isLocalMediaRef(musicUrl)) musicAudioRefs.add(musicUrl);
+		}
+
+		for (const ref of localRefs) {
+			const blob = await getLocalMediaBlobByRef(ref);
+			if (!blob) throw new Error('missing local media blob');
+			const uploaded = musicAudioRefs.has(ref)
+				? await uploadAnonymousAudioBlob(blob, `anon-${Date.now()}.${extensionForBlob(blob, 'mp3')}`)
+				: await uploadAnonymousImageBlob(blob, `anon-${Date.now()}.${extensionForBlob(blob, 'jpg')}`);
+			replacement.set(ref, uploaded);
+		}
+
+		const materializedCover = cover && replacement.has(cover) ? replacement.get(cover)! : cover;
+		const materializedBlocks = blocks.map((block) => {
+			if (block.type === 'image') {
+				const imageUrl = String(block.data?.url || '');
+				if (replacement.has(imageUrl)) {
+					return {
+						...block,
+						data: { ...block.data, url: replacement.get(imageUrl)! }
+					};
+				}
+			}
+			if (block.type === 'gallery' && Array.isArray(block.data?.items)) {
+				const items = block.data.items.map((item: any) => {
+					if (!item || item.kind !== 'image') return item;
+					const itemValue = String(item.value || '');
+					if (!replacement.has(itemValue)) return item;
+					return { ...item, value: replacement.get(itemValue)! };
+				});
+				return {
+					...block,
+					data: { ...block.data, items }
+				};
+			}
+			if (block.type === 'music') {
+				const musicUrl = String(block.data?.url || '');
+				const musicCoverUrl = String(block.data?.coverUrl || '');
+				const nextData = { ...block.data };
+				if (replacement.has(musicUrl)) nextData.url = replacement.get(musicUrl)!;
+				if (replacement.has(musicCoverUrl)) nextData.coverUrl = replacement.get(musicCoverUrl)!;
+				return {
+					...block,
+					data: nextData
+				};
+			}
+			return block;
+		});
+
+		return { materializedCover, materializedBlocks, localRefs };
+	}
+
+	async function cleanupLocalMediaRefs(refs: string[]) {
+		if (!refs.length) return;
+		await Promise.allSettled(refs.map((ref) => deleteLocalMediaRef(ref)));
+	}
+
+	function writeLocalDraftNow() {
+		if (!shouldPersistLocalDraft()) return;
+		const snapshot: LocalEditorDraft = {
+			version: 1,
+			title,
+			cover,
+			blocks,
+			darkMode,
+			cinematicEnabled,
+			moodStrength,
+			bgColor,
+			savedAt: new Date().toISOString()
+		};
+		try {
+			window.localStorage.setItem(LOCAL_DRAFT_KEY, JSON.stringify(snapshot));
+		} catch {
+			// best-effort local persistence
+		}
+	}
+
+	function scheduleLocalDraftSave() {
+		if (!shouldPersistLocalDraft()) return;
+		if (localDraftTimer) clearTimeout(localDraftTimer);
+		localDraftTimer = setTimeout(() => {
+			localDraftTimer = null;
+			writeLocalDraftNow();
+		}, LOCAL_DRAFT_DEBOUNCE_MS);
+	}
+
+	function restoreLocalDraft() {
+		if (typeof window === 'undefined') return;
+		if (!shouldPersistLocalDraft()) return;
+		let raw = '';
+		try {
+			raw = window.localStorage.getItem(LOCAL_DRAFT_KEY) || '';
+		} catch {
+			raw = '';
+		}
+		if (!raw) return;
+		try {
+			const parsed = JSON.parse(raw) as Partial<LocalEditorDraft>;
+			if (parsed.version !== 1) return;
+			if (typeof parsed.title === 'string') title = parsed.title;
+			cover = typeof parsed.cover === 'string' ? parsed.cover : null;
+			if (Array.isArray(parsed.blocks) && parsed.blocks.length > 0) {
+				blocks = parsed.blocks.map((block, index) => ({ ...block, position: index }));
+			}
+			darkMode = !!parsed.darkMode;
+			cinematicEnabled = !!parsed.cinematicEnabled;
+			moodStrength = Number.isFinite(parsed.moodStrength) ? Number(parsed.moodStrength) : moodStrength;
+			bgColor = typeof parsed.bgColor === 'string' ? parsed.bgColor : '';
+			syncTocNow();
+			void applyCoverPalette(cover);
+			status = 'Restored local draft.';
+			setTimeout(() => {
+				if (status === 'Restored local draft.') status = '';
+			}, 1600);
+		} catch {
+			clearLocalDraft();
+		}
 	}
 
 	function setupViewerIdentity() {
@@ -541,6 +766,10 @@
 	}
 
 	async function createPage() {
+		if (!$authUser) {
+			status = 'Log in to save drafts, or use Publish anonymously.';
+			return false;
+		}
 		if (creatingPagePromise) {
 			return creatingPagePromise;
 		}
@@ -576,6 +805,7 @@
 				noScroll: true,
 				keepFocus: true
 			});
+			clearLocalDraft();
 			status = 'Created.';
 			setTimeout(() => (status = ''), 2000);
 			hasUnsyncedMeta = false;
@@ -593,12 +823,44 @@
 
 	async function savePage() {
 		if (!canEdit) return;
+		if (!$authUser) return;
 		if (!pageId) return;
 		await syncBlocksNow(true);
 	}
 
+	async function publishAnonymousPage() {
+		status = 'Publishing anonymously…';
+		try {
+			const { materializedCover, materializedBlocks, localRefs } = await materializeAnonymousMediaForPublish();
+			const response = await fetch(`${apiUrl}/v1/public/pages`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
+				body: JSON.stringify({ title, cover: materializedCover, blocks: materializedBlocks, dark_mode: darkMode, cinematic: cinematicEnabled, mood: moodStrength, bg_color: bgColor })
+			});
+
+			if (!response.ok) throw new Error('Failed to publish anonymously');
+
+			const page: ApiPage = await response.json();
+			await cleanupLocalMediaRefs(localRefs);
+			clearLocalDraft();
+			status = 'Published anonymously.';
+			await goto(`/public/${encodeURIComponent(page.id)}`, {
+				replaceState: true,
+				noScroll: true,
+				keepFocus: true
+			});
+		} catch {
+			status = 'Anonymous publish failed.';
+		}
+	}
+
 	async function togglePublish() {
 		if (!canManage) return;
+		if (!$authUser && !pageId) {
+			await publishAnonymousPage();
+			return;
+		}
 		if (!pageId) {
 			const created = await createPage();
 			if (!created || !pageId) return;
@@ -818,6 +1080,10 @@
 			return;
 		}
 
+		if (!$authUser) {
+			return;
+		}
+
 		void (async () => {
 			const created = await createPage();
 			if (!created || !hasUnsyncedChanges) return;
@@ -830,6 +1096,10 @@
 
 		if (pageId) {
 			scheduleMetaSync();
+			return;
+		}
+
+		if (!$authUser) {
 			return;
 		}
 
@@ -1212,11 +1482,28 @@
 		shareToken = $page.url.searchParams.get('share')?.trim() || '';
 		if (!routePageId) {
 			loadedRoutePageId = '';
+			if (!localDraftHydrated) {
+				localDraftHydrated = true;
+				restoreLocalDraft();
+				if (titleEl) titleEl.textContent = title;
+			}
 		} else if (routePageId !== loadedRoutePageId && routePageId !== pageId) {
 			loadedRoutePageId = routePageId;
+			localDraftHydrated = true;
 			pageId = routePageId;
 			void loadPage();
 		}
+	}
+
+	$: if (shouldPersistLocalDraft()) {
+		title;
+		cover;
+		blocks;
+		darkMode;
+		cinematicEnabled;
+		moodStrength;
+		bgColor;
+		scheduleLocalDraftSave();
 	}
 
 	$: {
@@ -1228,6 +1515,8 @@
 	}
 
 	onDestroy(() => {
+		if (localDraftTimer) clearTimeout(localDraftTimer);
+		writeLocalDraftNow();
 		void publishPresence(false);
 		stopPresenceHeartbeat();
 		for (const blockId of Object.keys(typingHeartbeat)) {
@@ -1246,7 +1535,7 @@
 
 <div class="editor-shell">
 	<aside class="cover-rail" class:has-cover={!!cover}>
-		<Cover {cover} {apiUrl} {title} {pageId} {shareToken} blocks={tocBlocks} on:change={handleCoverChange} />
+		<Cover {cover} {apiUrl} {title} {pageId} {shareToken} allowLocalMedia={isAnonymousDraft} blocks={tocBlocks} on:change={handleCoverChange} />
 	</aside>
 
 	<main class="editor-main" class:dark={darkMode} class:cinematic-on={cinematicEnabled} class:has-bg-color={!!bgColor} style="{themeStyle}{bgColor ? `--note-user-bg:${bgColor};` : ''}">
@@ -1276,7 +1565,7 @@
 				<div class="publish-row">
 					{#if canManage}
 						<button type="button" class="publish-btn" class:published={isPublished} on:click={togglePublish}>
-							{isPublished ? 'Published' : 'Publish page'}
+							{isPublished ? 'Published' : ($authUser ? 'Publish page' : 'Publish anonymously')}
 						</button>
 					{/if}
 					{#if canEdit}
@@ -1284,7 +1573,7 @@
 							Import file
 						</button>
 					{/if}
-					{#if canManage}
+					{#if canManage && $authUser}
 						<label class="unlisted-toggle" title="Unlisted pages are published but hidden from feed and profile.">
 							<input type="checkbox" checked={isUnlisted} on:change={toggleUnlisted} />
 							<span>Unlisted</span>
@@ -1303,7 +1592,7 @@
 					class="hidden-file-input"
 				/>
 
-				{#if canManage && pageId}
+				{#if canManage && $authUser && pageId}
 					<div class="share-card">
 						<div class="share-card-title">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -1552,6 +1841,7 @@
 							{apiUrl}
 							{pageId}
 							{shareToken}
+							allowLocalMedia={isAnonymousDraft}
 							{listNumber}
 							published={isPublished}
 							{viewerSessionId}

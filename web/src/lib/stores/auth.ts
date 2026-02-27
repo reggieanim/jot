@@ -21,6 +21,10 @@ export const authLoading = writable(true);
 export async function fetchMe(): Promise<AuthUser | null> {
 	try {
 		const res = await fetch(`${apiUrl}/v1/auth/me`, { credentials: 'include' });
+		if (res.status === 204) {
+			user.set(null);
+			return null;
+		}
 		if (!res.ok) {
 			user.set(null);
 			return null;
