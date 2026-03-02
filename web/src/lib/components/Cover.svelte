@@ -55,6 +55,13 @@
 				case 'embed':
 					if (block.data?.url) entries.push({ id: block.id || `toc-${idx}`, label: block.data?.caption || 'Embed', type: 'embed', icon: '◈', index: idx, depth: 0, isLast: false });
 					break;
+				case 'page_link': {
+					const label = String(block.data?.label || block.data?.title || '').trim();
+					if (label || block.data?.url || block.data?.page_id) {
+						entries.push({ id: block.id || `toc-${idx}`, label: label || 'Linked page', type: 'page_link', icon: '↗', index: idx, depth: 0, isLast: false });
+					}
+					break;
+				}
 				case 'quote':
 				case 'callout': {
 					const text = stripHtml(block.data?.text || '');
@@ -410,10 +417,14 @@
 		gap: 0;
 		flex: 1;
 		overflow-y: auto;
+		overflow-x: hidden;
+		-webkit-overflow-scrolling: touch;
+		scroll-padding-bottom: 20px;
 		scrollbar-width: thin;
 		scrollbar-color: rgba(128, 128, 128, 0.2) transparent;
 		padding-left: 0;
 		padding-top: 6px;
+		padding-bottom: 14px;
 	}
 
 	.toc-entry {
@@ -734,7 +745,8 @@
 		}
 
 		.toc-nav {
-			max-height: 140px;
+			max-height: 180px;
+			padding-bottom: 18px;
 		}
 
 		.toc-empty {

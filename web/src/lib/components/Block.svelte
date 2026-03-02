@@ -76,11 +76,82 @@
 
 		{ id: 'image', label: 'Image', icon: '🖼', description: 'Upload or embed image' },
 		{ id: 'gallery', label: 'Gallery', icon: '▦', description: '2-4 image columns' },
+		{ id: 'page_link', label: 'Page Link', icon: '↗', description: 'Link another Jot page as a card' },
 		{ id: 'embed', label: 'Embed', icon: '◆', description: 'Embed external content' },
 		{ id: 'code', label: 'Code', icon: '</>', description: 'Code block with syntax highlighting' },
 		{ id: 'canvas', label: 'Canvas', icon: '🎨', description: 'JavaScript canvas playground' },
 		{ id: 'music', label: 'Music', icon: '♫', description: 'Audio player with waveform' }
 	];
+
+	function extractLinkedPageId(raw: string): string {
+		const value = (raw || '').trim();
+		if (!value) return '';
+		const direct = value.match(/^[a-z0-9-]{16,}$/i);
+		if (direct) return value;
+		const fromPublic = value.match(/\/public\/([a-z0-9-]+)/i);
+		if (fromPublic?.[1]) return fromPublic[1];
+		const fromPageId = value.match(/[?&]pageId=([a-z0-9-]+)/i);
+		if (fromPageId?.[1]) return fromPageId[1];
+		return '';
+	}
+
+	function linkedPageHref() {
+		const pid = String(data?.page_id || '').trim() || extractLinkedPageId(String(data?.url || ''));
+		if (pid) return `/public/${encodeURIComponent(pid)}`;
+		const rawUrl = String(data?.url || '').trim();
+		if (!rawUrl) return '';
+		if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+		return `https://${rawUrl}`;
+	}
+
+	function linkedPageMetaText() {
+		const pid = String(data?.page_id || '').trim() || extractLinkedPageId(String(data?.url || ''));
+		if (pid) return `/public/${pid}`;
+		const href = linkedPageHref();
+		if (!href) return '';
+		if (href.startsWith('/')) return href;
+		try {
+			const parsed = new URL(href);
+			return parsed.hostname.replace(/^www\./, '');
+		} catch {
+			return href;
+		}
+	}
+
+	async function fetchLinkedPageMeta(target: string) {
+		const parsedPageId = extractLinkedPageId(target);
+		if (!parsedPageId) return;
+		try {
+			const res = await fetch(`${apiUrl}/v1/public/pages/${encodeURIComponent(parsedPageId)}`);
+			if (!res.ok) return;
+			const payload = await res.json();
+			dispatch('update', {
+				id,
+				type,
+				data: {
+					...data,
+					page_id: parsedPageId,
+					url: target,
+					title: String(payload?.title || ''),
+					cover: payload?.cover || ''
+				}
+			});
+		} catch {
+			// best-effort metadata fetch
+		}
+	}
+
+	function handlePageLinkTargetInput(e: Event) {
+		if (isLocked) return;
+		const nextTarget = (e.target as HTMLInputElement).value;
+		dispatch('update', { id, type, data: { ...data, url: nextTarget, page_id: extractLinkedPageId(nextTarget) } });
+	}
+
+	function handlePageLinkLabelInput(e: Event) {
+		if (isLocked) return;
+		const nextLabel = (e.target as HTMLInputElement).value;
+		dispatch('update', { id, type, data: { ...data, label: nextLabel } });
+	}
 
 	function saveText() {
 		if (contentEl) {
@@ -1228,6 +1299,55 @@
 					/>
 				</div>
 			{/if}
+		{:else if type === 'page_link'}
+			{@const href = linkedPageHref()}
+			<div class="page-link-block">
+				{#if !isLocked}
+					<div class="page-link-editor">
+						<input
+							type="text"
+							class="page-link-input"
+							placeholder="Paste Jot page URL or page ID"
+							value={String(data?.url || data?.page_id || '')}
+							on:input={handlePageLinkTargetInput}
+							on:blur={(e) => fetchLinkedPageMeta((e.target as HTMLInputElement).value)}
+						/>
+						<input
+							type="text"
+							class="page-link-input"
+							placeholder="Custom link text (optional)"
+							value={String(data?.label || '')}
+							on:input={handlePageLinkLabelInput}
+						/>
+					</div>
+				{/if}
+				{#if href}
+					<a class="page-link-card" href={href} target={href.startsWith('/public/') ? undefined : '_blank'} rel={href.startsWith('/public/') ? undefined : 'noreferrer noopener'}>
+						<div class="page-link-media" class:has-cover={!!data?.cover}>
+							{#if data?.cover}
+								<img class="page-link-cover" src={data.cover} alt={data.title || 'Linked page'} />
+							{:else}
+								<div class="page-link-cover-fallback">↗</div>
+							{/if}
+						</div>
+						<div class="page-link-body">
+							<div class="page-link-toprow">
+								<div class="page-link-kicker">Page Link</div>
+								<div class="page-link-arrow">↗</div>
+							</div>
+							<div class="page-link-title">{String(data?.label || data?.title || 'Open linked page')}</div>
+							{#if data?.title && data?.label && data.label.trim() !== data.title.trim()}
+								<div class="page-link-sub">{data.title}</div>
+							{/if}
+							{#if linkedPageMetaText()}
+								<div class="page-link-meta">{linkedPageMetaText()}</div>
+							{/if}
+						</div>
+					</a>
+				{:else}
+					<div class="page-link-empty">Add a page URL to show a preview card.</div>
+				{/if}
+			</div>
 		{:else if type === 'code'}
 			<div class="code-block">
 				<div class="code-toolbar">
@@ -1603,6 +1723,151 @@
 		letter-spacing: 0.04em;
 		opacity: 0.7;
 		color: var(--note-muted, #6b7280);
+	}
+
+	.page-link-block {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.page-link-editor {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.page-link-input {
+		width: 100%;
+		padding: 10px 12px;
+		border-radius: 10px;
+		border: 2px solid var(--note-border, #d9dde3);
+		background: var(--note-surface, #fff);
+		color: var(--note-text, #1f2328);
+		font-size: 13px;
+		font-family: inherit;
+	}
+
+	.page-link-card {
+		display: flex;
+		gap: 0;
+		text-decoration: none;
+		border: 2px solid var(--note-text, #1f2328);
+		background: var(--note-surface, #fff);
+		border-radius: 12px;
+		overflow: hidden;
+		transition: transform 0.12s ease, box-shadow 0.12s ease;
+		box-shadow: 4px 4px 0 var(--note-text, #1f2328);
+	}
+
+	.page-link-card:hover {
+		transform: translate(-1px, -1px);
+		box-shadow: 6px 6px 0 var(--note-text, #1f2328);
+	}
+
+	.page-link-media {
+		width: 120px;
+		height: 96px;
+		flex-shrink: 0;
+		background: color-mix(in srgb, var(--note-text, #1f2328) 8%, var(--note-surface, #fff));
+		position: relative;
+		overflow: hidden;
+		border-right: 2px solid var(--note-text, #1f2328);
+	}
+
+	.page-link-media.has-cover {
+		background: transparent;
+	}
+
+	.page-link-cover {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+	}
+
+	.page-link-cover-fallback {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 24px;
+		font-weight: 800;
+		color: var(--note-title, #111827);
+	}
+
+	.page-link-body {
+		padding: 10px 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		min-width: 0;
+		flex: 1;
+	}
+
+	.page-link-toprow {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
+	.page-link-kicker {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--note-text, #1f2328);
+		font-weight: 700;
+	}
+
+	.page-link-arrow {
+		width: auto;
+		height: auto;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 13px;
+		font-weight: 700;
+		color: var(--note-text, #1f2328);
+	}
+
+	.page-link-title {
+		font-size: 14px;
+		font-weight: 800;
+		color: var(--note-text, #1f2328);
+		display: -webkit-box;
+		line-clamp: 2;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		line-height: 1.3;
+	}
+
+	.page-link-sub {
+		font-size: 12px;
+		color: color-mix(in srgb, var(--note-text, #1f2328) 70%, var(--note-surface, #fff));
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.page-link-meta {
+		margin-top: 2px;
+		font-size: 11px;
+		font-weight: 600;
+		color: color-mix(in srgb, var(--note-text, #1f2328) 62%, var(--note-surface, #fff));
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.page-link-empty {
+		font-size: 12px;
+		color: color-mix(in srgb, var(--note-text, #1f2328) 65%, var(--note-surface, #fff));
+		padding: 10px 12px;
+		border-radius: 10px;
+		border: 2px dashed var(--note-text, #1f2328);
 	}
 
 	/* ---- Media figure + caption ---- */

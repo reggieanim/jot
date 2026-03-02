@@ -536,6 +536,8 @@
 						? { url: '' }
 					: type === 'gallery'
 						? { items: [], columns: 2 }
+						: type === 'page_link'
+							? { page_id: '', url: '', label: '', title: '', cover: '' }
 					: type === 'music'
 						? { url: '', title: '', artist: '', coverUrl: '' }
 						: { text: '' };
@@ -606,6 +608,8 @@
 							? { url: '' }
 						: newType === 'gallery'
 							? { items: [], columns: 2 }
+								: newType === 'page_link'
+									? { page_id: '', url: '', label: '', title: '', cover: '' }
 						: newType === 'music'
 							? { url: '', title: '', artist: '', coverUrl: '' }
 							: { text: '' };

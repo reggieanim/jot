@@ -117,6 +117,41 @@
 		return block.id || `${block.type}-${index}`;
 	}
 
+	function extractLinkedPageId(raw: string): string {
+		const value = (raw || '').trim();
+		if (!value) return '';
+		const direct = value.match(/^[a-z0-9-]{16,}$/i);
+		if (direct) return value;
+		const fromPublic = value.match(/\/public\/([a-z0-9-]+)/i);
+		if (fromPublic?.[1]) return fromPublic[1];
+		const fromPageId = value.match(/[?&]pageId=([a-z0-9-]+)/i);
+		if (fromPageId?.[1]) return fromPageId[1];
+		return '';
+	}
+
+	function linkedPageHref(block: ApiBlock): string {
+		const pid = String(block?.data?.page_id || '').trim() || extractLinkedPageId(String(block?.data?.url || ''));
+		if (pid) return `/public/${encodeURIComponent(pid)}`;
+		const rawUrl = String(block?.data?.url || '').trim();
+		if (!rawUrl) return '';
+		if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+		return `https://${rawUrl}`;
+	}
+
+	function linkedPageMetaText(block: ApiBlock): string {
+		const pid = String(block?.data?.page_id || '').trim() || extractLinkedPageId(String(block?.data?.url || ''));
+		if (pid) return `/public/${pid}`;
+		const href = linkedPageHref(block);
+		if (!href) return '';
+		if (href.startsWith('/')) return href;
+		try {
+			const parsed = new URL(href);
+			return parsed.hostname.replace(/^www\./, '');
+		} catch {
+			return href;
+		}
+	}
+
 	function isTextual(block: ApiBlock) {
 		return ['paragraph', 'heading', 'heading2', 'heading3', 'bullet', 'numbered', 'quote'].includes(block.type);
 	}
@@ -124,6 +159,7 @@
 	function blockHasContent(block: ApiBlock): boolean {
 		if (!block) return false;
 		const t = block.type;
+		if (t === 'page_link') return !!block.data?.page_id || !!block.data?.url;
 		if (['image', 'gallery', 'embed'].includes(t)) return !!block.data?.url || (Array.isArray(block.data?.items) && block.data.items.length > 0);
 		if (t === 'code' || t === 'canvas') return !!block.data?.code?.trim();
 		if (t === 'music') return !!block.data?.url;
@@ -396,6 +432,32 @@
 						coverUrl={block.data.coverUrl || ''}
 						readonly={true}
 					/>
+				{/if}
+			{:else if block.type === 'page_link'}
+				{@const href = linkedPageHref(block)}
+				{#if href}
+					<a class="page-link-card" href={href} target={href.startsWith('/public/') ? undefined : '_blank'} rel={href.startsWith('/public/') ? undefined : 'noreferrer noopener'}>
+						<div class="page-link-media" class:has-cover={!!block.data?.cover}>
+							{#if block.data?.cover}
+								<img class="page-link-cover" src={block.data.cover} alt={block.data?.title || 'Linked page'} />
+							{:else}
+								<div class="page-link-cover-fallback">↗</div>
+							{/if}
+						</div>
+						<div class="page-link-body">
+							<div class="page-link-toprow">
+								<div class="page-link-kicker">Page Link</div>
+								<div class="page-link-arrow">↗</div>
+							</div>
+							<div class="page-link-title">{String(block.data?.label || block.data?.title || 'Open linked page')}</div>
+							{#if block.data?.title && block.data?.label && block.data.label.trim() !== block.data.title.trim()}
+								<div class="page-link-sub">{block.data.title}</div>
+							{/if}
+							{#if linkedPageMetaText(block)}
+								<div class="page-link-meta">{linkedPageMetaText(block)}</div>
+							{/if}
+						</div>
+					</a>
 				{/if}
 			{:else}
 				<div class="editable readonly-paragraph" class:dimmed={dimOriginal} class:strike={dimOriginal && draftKind === 'strike'}>{@html htmlOf(block)}</div>
@@ -807,6 +869,120 @@
 		border: 1px solid var(--note-border, #d1d5db);
 		border-radius: 12px;
 		background: #000;
+	}
+
+	.page-link-card {
+		display: flex;
+		gap: 0;
+		text-decoration: none;
+		border: 2px solid var(--note-text, #1f2328);
+		background: var(--note-surface, #fff);
+		border-radius: 12px;
+		overflow: hidden;
+		transition: transform 0.12s ease, box-shadow 0.12s ease;
+		box-shadow: 4px 4px 0 var(--note-text, #1f2328);
+	}
+
+	.page-link-card:hover {
+		transform: translate(-1px, -1px);
+		box-shadow: 6px 6px 0 var(--note-text, #1f2328);
+	}
+
+	.page-link-media {
+		width: 120px;
+		height: 96px;
+		flex-shrink: 0;
+		background: color-mix(in srgb, var(--note-text, #1f2328) 8%, var(--note-surface, #fff));
+		position: relative;
+		overflow: hidden;
+		border-right: 2px solid var(--note-text, #1f2328);
+	}
+
+	.page-link-media.has-cover {
+		background: transparent;
+	}
+
+	.page-link-cover {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+	}
+
+	.page-link-cover-fallback {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 24px;
+		font-weight: 800;
+		color: var(--note-title, #111827);
+	}
+
+	.page-link-body {
+		padding: 10px 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		min-width: 0;
+		flex: 1;
+	}
+
+	.page-link-toprow {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
+	.page-link-kicker {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--note-text, #1f2328);
+		font-weight: 700;
+	}
+
+	.page-link-arrow {
+		width: auto;
+		height: auto;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 13px;
+		font-weight: 700;
+		color: var(--note-text, #1f2328);
+	}
+
+	.page-link-title {
+		font-size: 14px;
+		font-weight: 800;
+		color: var(--note-text, #1f2328);
+		display: -webkit-box;
+		line-clamp: 2;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		line-height: 1.3;
+	}
+
+	.page-link-sub {
+		font-size: 12px;
+		color: color-mix(in srgb, var(--note-text, #1f2328) 70%, var(--note-surface, #fff));
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.page-link-meta {
+		margin-top: 2px;
+		font-size: 11px;
+		font-weight: 600;
+		color: color-mix(in srgb, var(--note-text, #1f2328) 62%, var(--note-surface, #fff));
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.proofread-overlay {
