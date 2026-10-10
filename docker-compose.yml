@@ -63,21 +63,6 @@ services:
       timeout: 3s
       retries: 3
 
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    restart: "no"
-    entrypoint: >
-      /bin/sh -c "
-      until /usr/bin/mc alias set local http://minio:9000 minioadmin $${MINIO_ROOT_PASSWORD}; do sleep 1; done;
-      /usr/bin/mc mb -p local/jot-media || true;
-      /usr/bin/mc anonymous set download local/jot-media || true;
-      "
-    environment:
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-
   # ── Go API ──
   jotd:
     build:
@@ -89,8 +74,8 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
     environment:
       JOT_ENV: production
       JOT_HTTP_ADDR: ":8080"

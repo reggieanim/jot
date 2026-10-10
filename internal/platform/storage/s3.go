@@ -55,6 +55,12 @@ func NewS3MediaStore(endpoint, accessKey, secretKey, bucket string, useSSL bool,
 		}
 	}
 
+	// Media is served straight from the bucket, so make objects publicly readable.
+	policy := fmt.Sprintf(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::%s/*"]}]}`, bucket)
+	if err := client.SetBucketPolicy(context.Background(), bucket, policy); err != nil {
+		return nil, fmt.Errorf("set bucket policy: %w", err)
+	}
+
 	resolvedPublicBaseURL := strings.TrimSpace(publicBaseURL)
 	if resolvedPublicBaseURL == "" {
 		scheme := "http"
