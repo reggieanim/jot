@@ -317,13 +317,13 @@
 						{@const img = imageFor(p)}
 						{@const emb = embedFor(p)}
 						{@const mus = musicFor(p)}
-						<a class="card" href={`/public/${p.id}`} class:tall={idx % 3 === 0} class:dark={p.dark_mode} class:cinematic={p.cinematic} class:has-user-bg={!!p.bg_color} style={cinematicStyle(p)}>
+						<a class="card" class:no-media={!img && !emb && !mus} href={`/public/${p.id}`} class:tall={idx % 3 === 0} class:dark={p.dark_mode} class:cinematic={p.cinematic} class:has-user-bg={!!p.bg_color} style={cinematicStyle(p)}>
 							{#if isOwnProfile}
 								<button class="card-edit-btn" type="button" title="Edit page" on:click|preventDefault|stopPropagation={() => goto(`/editor/${p.id}`)}>
 									<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
 								</button>
 							{/if}
-							<div class="card-visual" style={!img && !emb && !mus ? `background:${patternFor(p)}` : ''}>
+							<div class="card-visual">
 								{#if img}
 									<img src={img} alt={p.title || 'Page image'} />
 								{:else if emb}
@@ -1374,4 +1374,202 @@
 			height: 160px;
 		}
 	}
+
+	/* ═══ PORTFOLIO GRID – sharp, borderless, title-on-image ═══ */
+	.masonry { columns: 3; column-gap: 6px; }
+	.masonry a.card.card.card {
+		margin-bottom: 6px;
+		background: #111;
+		border: none;
+		border-radius: 0;
+		box-shadow: none;
+		transform: none;
+		color: #fff;
+	}
+	.masonry a.card.card.card:hover { transform: none; box-shadow: none; }
+	.masonry a.card.card.card .card-visual { min-height: 340px; background-color: #1a1a1a; border: none; }
+	.masonry a.card.card.card.tall .card-visual { min-height: 520px; }
+	.masonry a.card.card.card.wide .card-visual { min-height: 400px; }
+	.masonry a.card.card.card .card-visual img { transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1); }
+	.masonry a.card.card.card:hover .card-visual img { transform: scale(1.04); }
+	.masonry a.card.card.card .card-visual::after { display: none; }
+	.masonry a.card.card.card .card-body {
+		position: absolute;
+		inset: 0;
+		padding: 0;
+		gap: 0;
+		justify-content: flex-end;
+		background: none;
+		border: none;
+		pointer-events: none;
+	}
+	.masonry a.card.card.card .card-body::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(180deg, rgba(0,0,0,0) 45%, rgba(0,0,0,0.72) 100%);
+		transition: opacity 0.3s ease;
+	}
+	.masonry a.card.card.card:hover .card-body::before { opacity: 0.85; }
+	.masonry a.card.card.card .card-title {
+		position: relative;
+		margin: 0;
+		padding: 0 20px 20px;
+		font-size: 1.15rem;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+		line-height: 1.25;
+		color: #fff;
+		text-shadow: 0 1px 12px rgba(0,0,0,0.35);
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+	}
+	.masonry a.card.card.card .card-tag,
+	.masonry a.card.card.card .card-meta,
+	.masonry a.card.card.card .card-author,
+	.masonry a.card.card.card .collab-row,
+	.masonry a.card.card.card .card-proofreads,
+	.masonry a.card.card.card .card-read-more,
+	.masonry a.card.card.card .card-footer-row { display: none; }
+	.masonry a.card.card.card .card-edit-btn {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		z-index: 3;
+		border: none;
+		border-radius: 0;
+		background: rgba(0,0,0,0.6);
+		color: #fff;
+		backdrop-filter: blur(4px);
+	}
+	.masonry a.card.card.card .card-edit-btn svg { stroke: currentColor; }
+	.masonry a.card.card.card .card-edit-btn:hover { background: #fff; color: #111; }
+	.masonry a.card.card.card .card-default-icon { color: #fff; opacity: 0.25; }
+	@media (max-width: 1200px) { .masonry { columns: 2; } }
+	@media (max-width: 560px) {
+		.masonry { columns: 1; }
+		.masonry a.card.card.card .card-visual { min-height: 300px; }
+		.masonry a.card.card.card.tall .card-visual { min-height: 420px; }
+	}
+
+	/* ── Author line + compact text-only cards ── */
+	.masonry a.card.card.card .card-meta {
+		display: flex;
+		position: relative;
+		margin: 0;
+		padding: 0 20px 18px;
+		justify-content: flex-start;
+	}
+	.masonry a.card.card.card .card-author {
+		display: flex;
+		position: relative;
+		margin: 0;
+		padding: 0 20px 18px;
+		gap: 8px;
+	}
+	.masonry a.card.card.card .card-meta .card-author { padding: 0; }
+	.masonry a.card.card.card .card-date { display: none; }
+	.masonry a.card.card.card .card-author-name {
+		color: rgba(255,255,255,0.8);
+		font-size: 12px;
+		font-weight: 500;
+		pointer-events: auto;
+		text-shadow: 0 1px 8px rgba(0,0,0,0.4);
+	}
+	.masonry a.card.card.card .card-author-name:hover { color: #fff; text-decoration: underline; }
+	.masonry a.card.card.card .card-author-avatar,
+	.masonry a.card.card.card .card-author-letter {
+		width: 20px;
+		height: 20px;
+		border-radius: 0;
+		border: none;
+		font-size: 10px;
+		background: rgba(255,255,255,0.2);
+		color: #fff;
+	}
+	.masonry a.card.card.card .card-title { padding-bottom: 8px; }
+
+	.masonry a.card.card.card.no-media .card-visual { min-height: 150px; background: #1a1a1a; }
+	.masonry a.card.card.card.no-media.tall .card-visual,
+	.masonry a.card.card.card.no-media.wide .card-visual { min-height: 190px; }
+	.masonry a.card.card.card.no-media .card-default-icon { display: none; }
+	.masonry a.card.card.card.no-media .card-body::before { display: none; }
+	.masonry a.card.card.card.no-media .card-title { font-size: 1.3rem; font-weight: 700; padding-top: 56px; }
+
+	/* Text-only cards: grey normally, black for dark-mode pages */
+	.masonry a.card.card.card.no-media .card-visual { background: #deded9; }
+	.masonry a.card.card.card.no-media { color: #111; }
+	.masonry a.card.card.card.no-media .card-title { color: #111; text-shadow: none; }
+	.masonry a.card.card.card.no-media .card-author-name { color: rgba(0,0,0,0.65); text-shadow: none; }
+	.masonry a.card.card.card.no-media .card-author-name:hover { color: #000; }
+	.masonry a.card.card.card.no-media .card-author-avatar,
+	.masonry a.card.card.card.no-media .card-author-letter { background: rgba(0,0,0,0.12); color: #111; }
+	.masonry a.card.card.card.no-media.dark .card-visual { background: #0a0a0a; }
+	.masonry a.card.card.card.no-media.dark .card-title { color: #fff; }
+	.masonry a.card.card.card.no-media.dark .card-author-name { color: rgba(255,255,255,0.75); }
+	.masonry a.card.card.card.no-media.dark .card-author-name:hover { color: #fff; }
+	.masonry a.card.card.card.no-media.dark .card-author-avatar,
+	.masonry a.card.card.card.no-media.dark .card-author-letter { background: rgba(255,255,255,0.2); color: #fff; }
+	.masonry a.card.card.card.no-media .card-edit-btn,
+	.masonry a.card.card.card.no-media .card-action { color: #fff; }
+
+	/* Uppercase card titles */
+	.masonry a.card.card.card .card-title {
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		font-size: 1rem;
+		font-weight: 700;
+	}
+	.masonry a.card.card.card.no-media .card-title { font-size: 1.15rem; }
+
+	/* Hover animation */
+	.masonry a.card.card.card { overflow: hidden; cursor: pointer; }
+	.masonry a.card.card.card .card-visual img {
+		transition: transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1), filter 0.4s ease;
+	}
+	.masonry a.card.card.card:hover .card-visual img {
+		transform: scale(1.06);
+		filter: brightness(0.82);
+	}
+	.masonry a.card.card.card .card-title,
+	.masonry a.card.card.card .card-meta,
+	.masonry a.card.card.card .card-author {
+		transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.2, 1), letter-spacing 0.35s ease, color 0.3s ease;
+	}
+	.masonry a.card.card.card:hover .card-title { transform: translateY(-6px); letter-spacing: 0.07em; }
+	.masonry a.card.card.card:hover .card-meta,
+	.masonry a.card.card.card:hover .card-author { transform: translateY(-6px); }
+	.masonry a.card.card.card .card-edit-btn,
+	.masonry a.card.card.card .card-actions {
+		opacity: 0;
+		transform: translateY(-6px);
+		transition: opacity 0.25s ease, transform 0.25s ease;
+	}
+	.masonry a.card.card.card:hover .card-edit-btn,
+	.masonry a.card.card.card:hover .card-actions { opacity: 1; transform: none; }
+
+	/* Text-only cards flip: grey -> black, black -> white */
+	.masonry a.card.card.card.no-media .card-visual { transition: background 0.35s ease; }
+	.masonry a.card.card.card.no-media:hover .card-visual { background: #0a0a0a; }
+	.masonry a.card.card.card.no-media:hover .card-title { color: #fff; }
+	.masonry a.card.card.card.no-media:hover .card-author-name { color: rgba(255,255,255,0.75); }
+	.masonry a.card.card.card.no-media.dark:hover .card-visual { background: #f2f2ee; }
+	.masonry a.card.card.card.no-media.dark:hover .card-title { color: #111; }
+	.masonry a.card.card.card.no-media.dark:hover .card-author-name { color: rgba(0,0,0,0.65); }
+
+	@media (hover: none) {
+		.masonry a.card.card.card .card-edit-btn,
+		.masonry a.card.card.card .card-actions { opacity: 1; transform: none; }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.masonry a.card.card.card *,
+		.masonry a.card.card.card { transition: none !important; }
+		.masonry a.card.card.card:hover .card-visual img { transform: none; }
+	}
+
+	/* Skinnier boxes: more, narrower columns */
+	.masonry { columns: 4; }
+	@media (max-width: 1200px) { .masonry { columns: 3; } }
+	@media (max-width: 860px) { .masonry { columns: 2; } }
+	@media (max-width: 560px) { .masonry { columns: 1; } }
 </style>
